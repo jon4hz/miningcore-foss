@@ -1,0 +1,3 @@
+[submodule "src/Native/libmultihash/secp256k1"]
+	path = src/Native/libmultihash/secp256k1
+	url = https://github.com/bitcoin-core/secp256k1
