@@ -383,6 +383,9 @@ public class EthereumPayoutHandler : PayoutHandlerBase,
             
             case GethChainType.Pink:
                return PinkConstants.BaseRewardInitial;
+            
+            case GethChainType.Flora:
+               return FloraConstants.BaseRewardInitial;
 
             case GethChainType.Callisto:
                 return CallistoConstants.BaseRewardInitial * (CallistoConstants.TreasuryPercent / 100);

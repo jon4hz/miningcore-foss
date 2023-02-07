@@ -4438,6 +4438,23 @@
         "explorerTxLink": "https://pinkscan.org/tx/{0}",
         "explorerAccountLink": "https://pinkscan.org/address/{0}"
     },
+    "florachain": {
+        "name": "FloraChain",
+        "canonicalName": "FloraChain",
+        "symbol": "FLR",
+        "family": "ethereum",
+        "website": "https://florachain.org/",
+        "market": "",
+        "twitter": "https://twitter.com/FloraChain",
+        "telegram": "https://t.me/FloraChain_Chat",
+        "discord": "https://discord.gg/58DS5WCunz",
+        "explorerBlockLinks": {
+            "block": "https://florascan.io/block/$height$",
+            "uncle": "https://florascan.io/uncle/$height$"
+        },
+        "explorerTxLink": "https://florascan.io/tx/{0}",
+        "explorerAccountLink": "https://florascan.io/address/{0}"
+    },
     "ubiq": {
         "name": "Ubiq",
         "canonicalName": "Ubiq",
