@@ -104,7 +104,6 @@ public enum EthereumNetworkType
     EtherOne = 4949,
     Pink = 10100,
     Flora = 10500,
-
     Unknown = -1,
 }
 
@@ -119,7 +118,6 @@ public enum GethChainType
     MainPow = 10001,
     EtherOne = 4949,
     Pink = 10100,
-    
     Unknown = -1,
     Flora = 10500,
 }
