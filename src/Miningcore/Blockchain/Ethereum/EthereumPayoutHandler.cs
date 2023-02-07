@@ -553,6 +553,17 @@ public class EthereumPayoutHandler : PayoutHandlerBase,
             };
             response = await rpcClient.ExecuteAsync<string>(logger, EC.SendTx, ct, new[] { requestPink });
         }  
+        else if(extraPoolConfig?.ChainTypeOverride == "Flora")
+        {
+            var requestFlora = new SendTransactionRequestFlora
+            {
+                From = poolConfig.Address,
+                To = balance.Address,
+                Value = amount.ToString("x").TrimStart('0'),
+                Gas = extraConfig.Gas
+            };
+            response = await rpcClient.ExecuteAsync<string>(logger, EC.SendTx, ct, new[] { requestFlora });
+        }
         else {
             response = await rpcClient.ExecuteAsync<string>(logger, EC.SendTx, ct, new[] { request });
         }
