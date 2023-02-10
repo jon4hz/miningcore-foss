@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
@@ -15,9 +16,9 @@ using Newtonsoft.Json.Linq;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
 
-namespace Miningcore.Blockchain.Bitcoin;
+namespace Miningcore.Blockchain.Raven;
 
-public class BitcoinJob
+public class RavenJob
 {
     protected IHashAlgorithm blockHasher;
     protected IMasterClock clock;
@@ -589,35 +590,6 @@ public class BitcoinJob
         txComment = !string.IsNullOrEmpty(extraPoolConfig?.CoinbaseTxComment) ?
             extraPoolConfig.CoinbaseTxComment : coin.CoinbaseTxComment;
 
-        if(coin.HasMasterNodes)
-        {
-            masterNodeParameters = BlockTemplate.Extra.SafeExtensionDataAs<MasterNodeBlockTemplateExtra>();
-
-            if(coin.HasSmartNodes)
-            {
-                if(masterNodeParameters.Extra?.ContainsKey("smartnode") == true)
-                {
-                    masterNodeParameters.Masternode = JToken.FromObject(masterNodeParameters.Extra["smartnode"]);
-                }
-            }
-
-            if(!string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
-            {
-                txVersion = 3;
-                const uint txType = 5;
-                txVersion += txType << 16;
-            }
-        }
-
-        if(coin.HasPayee)
-            payeeParameters = BlockTemplate.Extra.SafeExtensionDataAs<PayeeBlockTemplateExtra>();
-
-        if(coin.HasFounderFee)
-            founderParameters = BlockTemplate.Extra.SafeExtensionDataAs<FounderBlockTemplateExtra>();
-
-        if(coin.HasMinerFund)
-            minerFundParameters = BlockTemplate.Extra.SafeExtensionDataAs<MinerFundTemplateExtra>("coinbasetxn", "minerfund");
-
         this.coinbaseHasher = coinbaseHasher;
         this.headerHasher = headerHasher;
         this.blockHasher = blockHasher;
@@ -650,6 +622,9 @@ public class BitcoinJob
             BlockTemplate.CurTime.ToStringHex8(),
             false
         };
+
+        var context = worker.ContextAs<BitcoinWorkerContext>();
+        var extraNonce1 = context.ExtraNonce1;
     }
 
     public object GetJobParams(bool isNew)

@@ -10,6 +10,7 @@ using Miningcore.Blockchain.Cryptonote;
 using Miningcore.Blockchain.Equihash;
 using Miningcore.Blockchain.Ergo;
 using Miningcore.Blockchain.Ethereum;
+using Miningcore.Blockchain.Raven;
 using Miningcore.Configuration;
 using Miningcore.Crypto;
 using Miningcore.Crypto.Hashing.Equihash;
@@ -182,6 +183,11 @@ public class AutofacModule : Module
 
         builder.RegisterType<EquihashJobManager>();
         builder.RegisterType<ErgoJobManager>();
+
+        //////////////////////
+        // Raven
+
+        builder.RegisterType<RavenJobManager>();
 
         base.Load(builder);
     }
