@@ -6,6 +6,7 @@ using Miningcore.Blockchain.Bitcoin.Configuration;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
 using Miningcore.Crypto;
+using Miningcore.Crypto.Hashing.Kawpow;
 using Miningcore.Extensions;
 using Miningcore.Stratum;
 using Miningcore.Time;
@@ -13,10 +14,18 @@ using Miningcore.Util;
 using NBitcoin;
 using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
+using NLog;
+using Org.BouncyCastle.Math;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
 
 namespace Miningcore.Blockchain.Raven;
+
+public class RavenJobParams
+{
+    public ulong Height { get; set; }
+    public bool CleanJobs { get; set; }
+}
 
 public class RavenJob
 {
@@ -32,8 +41,8 @@ public class RavenJob
 
     protected Network network;
     protected IDestination poolAddressDestination;
-    protected BitcoinTemplate coin;
-    private BitcoinTemplate.BitcoinNetworkParams networkParams;
+    protected RavenTemplate coin;
+    private RavenTemplate.BitcoinNetworkParams networkParams;
     protected readonly ConcurrentDictionary<string, bool> submissions = new(StringComparer.OrdinalIgnoreCase);
     protected uint256 blockTargetValue;
     protected byte[] coinbaseFinal;
@@ -46,7 +55,7 @@ public class RavenJob
     ///////////////////////////////////////////
     // GetJobParams related properties
 
-    protected object[] jobParams;
+    protected RavenJobParams jobParams;
     protected string previousBlockHashReversedHex;
     protected Money rewardToPool;
     protected Transaction txOut;
@@ -155,11 +164,11 @@ public class RavenJob
             bs.ReadWriteAsVarString(ref data);
         }
 
-        if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
+        /* if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
         {
             var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
             bs.ReadWriteAsVarString(ref data);
-        }
+        } */
     }
 
     protected virtual byte[] SerializeOutputTransaction(Transaction tx)
@@ -238,7 +247,7 @@ public class RavenJob
         rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
         var tx = Transaction.Create(network);
 
-        if(coin.HasPayee)
+        /* if(coin.HasPayee)
             rewardToPool = CreatePayeeOutput(tx, rewardToPool);
 
         if(coin.HasMasterNodes)
@@ -248,7 +257,7 @@ public class RavenJob
             rewardToPool = CreateFounderOutputs(tx, rewardToPool);
 
         if(coin.HasMinerFund)
-            rewardToPool = CreateMinerFundOutputs(tx, rewardToPool);
+            rewardToPool = CreateMinerFundOutputs(tx, rewardToPool); */
 
         // Remaining amount goes to pool
         tx.Outputs.Add(rewardToPool, poolAddressDestination);
@@ -256,7 +265,7 @@ public class RavenJob
         return tx;
     }
 
-    protected virtual Money CreatePayeeOutput(Transaction tx, Money reward)
+    /* protected virtual Money CreatePayeeOutput(Transaction tx, Money reward)
     {
         if(payeeParameters?.PayeeAmount != null && payeeParameters.PayeeAmount.Value > 0)
         {
@@ -267,7 +276,7 @@ public class RavenJob
         }
 
         return reward;
-    }
+    } */
 
     protected bool RegisterSubmit(string extraNonce1, string extraNonce2, string nTime, string nonce)
     {
@@ -281,17 +290,13 @@ public class RavenJob
         return submissions.TryAdd(key, true);
     }
 
-    protected byte[] SerializeHeader(Span<byte> coinbaseHash, uint nTime, uint nonce, uint? versionMask, uint? versionBits)
+    protected byte[] SerializeHeader(Span<byte> coinbaseHash, uint nTime, uint nonce)
     {
         // build merkle-root
         var merkleRoot = mt.WithFirst(coinbaseHash.ToArray());
 
         // Build version
         var version = BlockTemplate.Version;
-
-        // Overt-ASIC boost
-        if(versionMask.HasValue && versionBits.HasValue)
-            version = (version & ~versionMask.Value) | (versionBits.Value & versionMask.Value);
 
 #pragma warning disable 618
         var blockHeader = new BlockHeader
@@ -311,7 +316,7 @@ public class RavenJob
     protected virtual (Share Share, string BlockHex) ProcessShareInternal(
         StratumConnection worker, string extraNonce2, uint nTime, uint nonce, uint? versionBits)
     {
-        var context = worker.ContextAs<BitcoinWorkerContext>();
+        var context = worker.ContextAs<RavenWorkerContext>();
         var extraNonce1 = context.ExtraNonce1;
 
         // build coinbase
@@ -320,7 +325,7 @@ public class RavenJob
         coinbaseHasher.Digest(coinbase, coinbaseHash);
 
         // hash block-header
-        var headerBytes = SerializeHeader(coinbaseHash, nTime, nonce, context.VersionRollingMask, versionBits);
+        var headerBytes = SerializeHeader(coinbaseHash, nTime, nonce);
         Span<byte> headerHash = stackalloc byte[32];
         headerHasher.Digest(headerBytes, headerHash, (ulong) nTime, BlockTemplate, coin, networkParams);
         var headerValue = new uint256(headerHash);
@@ -379,13 +384,13 @@ public class RavenJob
     protected virtual byte[] SerializeCoinbase(string extraNonce1, string extraNonce2)
     {
         var extraNonce1Bytes = extraNonce1.HexToByteArray();
-        var extraNonce2Bytes = extraNonce2.HexToByteArray();
+        /* var extraNonce2Bytes = extraNonce2.HexToByteArray(); */
 
         using(var stream = new MemoryStream())
         {
             stream.Write(coinbaseInitial);
             stream.Write(extraNonce1Bytes);
-            stream.Write(extraNonce2Bytes);
+            /* stream.Write(extraNonce2Bytes); */
             stream.Write(coinbaseFinal);
 
             return stream.ToArray();
@@ -429,65 +434,65 @@ public class RavenJob
         }
     }
 
-    #region Masternodes
+    /*     #region Masternodes
 
-    protected MasterNodeBlockTemplateExtra masterNodeParameters;
+        protected MasterNodeBlockTemplateExtra masterNodeParameters;
 
-    protected virtual Money CreateMasternodeOutputs(Transaction tx, Money reward)
-    {
-        if(masterNodeParameters.Masternode != null)
+        protected virtual Money CreateMasternodeOutputs(Transaction tx, Money reward)
         {
-            Masternode[] masternodes;
-
-            // Dash v13 Multi-Master-Nodes
-            if(masterNodeParameters.Masternode.Type == JTokenType.Array)
-                masternodes = masterNodeParameters.Masternode.ToObject<Masternode[]>();
-            else
-                masternodes = new[] { masterNodeParameters.Masternode.ToObject<Masternode>() };
-
-            if(masternodes != null)
+            if(masterNodeParameters.Masternode != null)
             {
-                foreach(var masterNode in masternodes)
-                {
-                    if(!string.IsNullOrEmpty(masterNode.Payee))
-                    {
-                        var payeeDestination = BitcoinUtils.AddressToDestination(masterNode.Payee, network);
-                        var payeeReward = masterNode.Amount;
+                Masternode[] masternodes;
 
-                        tx.Outputs.Add(payeeReward, payeeDestination);
-                        reward -= payeeReward;
+                // Dash v13 Multi-Master-Nodes
+                if(masterNodeParameters.Masternode.Type == JTokenType.Array)
+                    masternodes = masterNodeParameters.Masternode.ToObject<Masternode[]>();
+                else
+                    masternodes = new[] { masterNodeParameters.Masternode.ToObject<Masternode>() };
+
+                if(masternodes != null)
+                {
+                    foreach(var masterNode in masternodes)
+                    {
+                        if(!string.IsNullOrEmpty(masterNode.Payee))
+                        {
+                            var payeeDestination = BitcoinUtils.AddressToDestination(masterNode.Payee, network);
+                            var payeeReward = masterNode.Amount;
+
+                            tx.Outputs.Add(payeeReward, payeeDestination);
+                            reward -= payeeReward;
+                        }
                     }
                 }
             }
-        }
 
-        if(masterNodeParameters.SuperBlocks is { Length: > 0 })
-        {
-            foreach(var superBlock in masterNodeParameters.SuperBlocks)
+            if(masterNodeParameters.SuperBlocks is { Length: > 0 })
             {
-                var payeeAddress = BitcoinUtils.AddressToDestination(superBlock.Payee, network);
-                var payeeReward = superBlock.Amount;
+                foreach(var superBlock in masterNodeParameters.SuperBlocks)
+                {
+                    var payeeAddress = BitcoinUtils.AddressToDestination(superBlock.Payee, network);
+                    var payeeReward = superBlock.Amount;
+
+                    tx.Outputs.Add(payeeReward, payeeAddress);
+                    reward -= payeeReward;
+                }
+            }
+
+            if(!coin.HasPayee && !string.IsNullOrEmpty(masterNodeParameters.Payee))
+            {
+                var payeeAddress = BitcoinUtils.AddressToDestination(masterNodeParameters.Payee, network);
+                var payeeReward = masterNodeParameters.PayeeAmount;
 
                 tx.Outputs.Add(payeeReward, payeeAddress);
                 reward -= payeeReward;
             }
+
+            return reward;
         }
 
-        if(!coin.HasPayee && !string.IsNullOrEmpty(masterNodeParameters.Payee))
-        {
-            var payeeAddress = BitcoinUtils.AddressToDestination(masterNodeParameters.Payee, network);
-            var payeeReward = masterNodeParameters.PayeeAmount;
+        #endregion // Masternodes */
 
-            tx.Outputs.Add(payeeReward, payeeAddress);
-            reward -= payeeReward;
-        }
-
-        return reward;
-    }
-
-    #endregion // Masternodes
-
-    #region Founder
+    /* #region Founder
 
     protected FounderBlockTemplateExtra founderParameters;
 
@@ -541,7 +546,7 @@ public class RavenJob
         return reward;
     }
 
-    #endregion // Founder
+    #endregion // Founder */
 
     #region API-Surface
 
@@ -567,7 +572,7 @@ public class RavenJob
         Contract.RequiresNonNull(blockHasher);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(jobId));
 
-        coin = pc.Template.As<BitcoinTemplate>();
+        coin = pc.Template.As<RavenTemplate>();
         networkParams = coin.GetNetwork(network.ChainName);
         txVersion = coin.CoinbaseTxVersion;
         this.network = network;
@@ -610,7 +615,7 @@ public class RavenJob
         BuildMerkleBranches();
         BuildCoinbase();
 
-        jobParams = new object[]
+        /* jobParams = new object[]
         {
             JobId,
             previousBlockHashReversedHex,
@@ -621,15 +626,61 @@ public class RavenJob
             BlockTemplate.Bits,
             BlockTemplate.CurTime.ToStringHex8(),
             false
+        }; */
+
+        jobParams = new RavenJobParams
+        {
+            Height = BlockTemplate.Height,
+            CleanJobs = false
         };
 
-        var context = worker.ContextAs<BitcoinWorkerContext>();
-        var extraNonce1 = context.ExtraNonce1;
+        /* var context = worker.ContextAs<RavenWorkerContext>();
+        var extraNonce1 = context.ExtraNonce1; */
+    }
+
+    /*  public virtual async Task<object> UpdateJobPerWorkerAsync(ILogger logger, RavenWorkerContext context)
+     {
+         var kawpowHasher = await coin.KawpowHasher.GetCacheAsync(logger, 1);
+         var headerHash = CreateHeaderHash(context, kawpowHasher);
+
+         return new object[]
+         {
+             this.JobId,
+             headerHash,
+             kawpowHasher.SeedHash.ToHexString(),
+             RavenUtils.EncodeTarget(context.Difficulty),
+             false,
+             BlockTemplate.Height,
+             BlockTemplate.Bits
+         };
+     } */
+
+    public virtual void PrepareWorkerJob(RavenWorkerJob workerJob, out string headerHash)
+    {
+        workerJob.Height = BlockTemplate.Height;
+        workerJob.Bits = BlockTemplate.Bits;
+        headerHash = CreateHeaderHash(workerJob);
+    }
+
+    protected virtual string CreateHeaderHash(RavenWorkerJob workerJob)
+    {
+        var headerHasher = coin.HeaderHasherValue;
+        var coinbaseHasher = coin.CoinbaseHasherValue;
+
+        var coinbase = SerializeCoinbase(workerJob.ExtraNonce1, "");
+        Span<byte> coinbaseHash = stackalloc byte[32];
+        coinbaseHasher.Digest(coinbase, coinbaseHash);
+
+        var headerBytes = SerializeHeader(coinbaseHash, BlockTemplate.CurTime, BlockTemplate.Height);
+        Span<byte> headerHash = stackalloc byte[32];
+        headerHasher.Digest(headerBytes, headerHash);
+
+        return headerHash.ToNewReverseArray().ToHexString();
     }
 
     public object GetJobParams(bool isNew)
     {
-        jobParams[^1] = isNew;
+        jobParams.CleanJobs = isNew;
         return jobParams;
     }
 
@@ -641,7 +692,7 @@ public class RavenJob
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nTime));
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nonce));
 
-        var context = worker.ContextAs<BitcoinWorkerContext>();
+        var context = worker.ContextAs<RavenWorkerContext>();
 
         // validate nTime
         if(nTime.Length != 8)
@@ -660,14 +711,14 @@ public class RavenJob
         // validate version-bits (overt ASIC boost)
         uint versionBitsInt = 0;
 
-        if(context.VersionRollingMask.HasValue && versionBits != null)
-        {
-            versionBitsInt = uint.Parse(versionBits, NumberStyles.HexNumber);
+        /*  if(context.VersionRollingMask.HasValue && versionBits != null)
+         {
+             versionBitsInt = uint.Parse(versionBits, NumberStyles.HexNumber);
 
-            // enforce that only bits covered by current mask are changed by miner
-            if((versionBitsInt & ~context.VersionRollingMask.Value) != 0)
-                throw new StratumException(StratumError.Other, "rolling-version mask violation");
-        }
+             // enforce that only bits covered by current mask are changed by miner
+             if((versionBitsInt & ~context.VersionRollingMask.Value) != 0)
+                 throw new StratumException(StratumError.Other, "rolling-version mask violation");
+         } */
 
         // dupe check
         if(!RegisterSubmit(context.ExtraNonce1, extraNonce2, nTime, nonce))

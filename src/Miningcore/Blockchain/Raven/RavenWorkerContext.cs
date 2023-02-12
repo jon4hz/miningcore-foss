@@ -18,4 +18,19 @@ public class RavenWorkerContext : WorkerContextBase
     /// Unique value assigned per worker
     /// </summary>
     public string ExtraNonce1 { get; set; }
+
+    private List<RavenWorkerJob> validJobs { get; } = new();
+
+    public void AddJob(RavenWorkerJob job)
+    {
+        validJobs.Insert(0, job);
+
+        while(validJobs.Count > 4)
+            validJobs.RemoveAt(validJobs.Count - 1);
+    }
+
+    public RavenWorkerJob FindJob(string jobId)
+    {
+        return validJobs.FirstOrDefault(x => x.Id == jobId);
+    }
 }

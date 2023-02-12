@@ -346,8 +346,6 @@ public class EthereumJobManager : JobManagerBase<EthereumJob>
 
         if(pc.EnableInternalStratum == true)
         {
-            var coin = pc.Template.As<EthereumCoinTemplate>();
-
             logger.Info(() => $"Ethasher is: {coin.Ethasher}");
 
             var hardForkBlock = extraPoolConfig?.ChainTypeOverride == "Classic" ? EthereumClassicConstants.HardForkBlockMainnet : EthereumClassicConstants.HardForkBlockMordor;

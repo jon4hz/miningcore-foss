@@ -2,6 +2,9 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Runtime.Serialization;
 using AspNetCoreRateLimit;
+using Microsoft.AspNetCore.Identity;
+using Miningcore.Crypto.Hashing.Kawpow;
+using Miningcore.Native;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
@@ -139,7 +142,7 @@ public abstract partial class CoinTemplate
         {CoinFamily.Cryptonote, typeof(CryptonoteCoinTemplate)},
         {CoinFamily.Ethereum, typeof(EthereumCoinTemplate)},
         {CoinFamily.Ergo, typeof(ErgoCoinTemplate)},
-        {CoinFamily.Raven, typeof(BitcoinTemplate)},
+        {CoinFamily.Raven, typeof(RavenTemplate)},
     };
 }
 
@@ -226,6 +229,11 @@ public partial class BitcoinTemplate : CoinTemplate
 
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public string BlockSerializer { get; set; }
+}
+
+public partial class RavenTemplate : BitcoinTemplate
+{
+    public EthashLight KawpowHasher { get; set; }
 }
 
 public enum EquihashSubfamily

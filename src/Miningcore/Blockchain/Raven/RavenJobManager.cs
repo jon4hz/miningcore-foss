@@ -1,3 +1,4 @@
+using System.Threading.Tasks.Dataflow;
 using Autofac;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
@@ -5,9 +6,11 @@ using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
 using Miningcore.Contracts;
 using Miningcore.Crypto;
+using Miningcore.Crypto.Hashing.Kawpow;
 using Miningcore.Extensions;
 using Miningcore.JsonRpc;
 using Miningcore.Messaging;
+using Miningcore.Native;
 using Miningcore.Rpc;
 using Miningcore.Stratum;
 using Miningcore.Time;
@@ -28,7 +31,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
     {
     }
 
-    private BitcoinTemplate coin;
+    private RavenTemplate coin;
 
     protected async Task<RpcResponse<BlockTemplate>> GetBlockTemplateAsync(CancellationToken ct)
     {
@@ -161,7 +164,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
 
     public override void Configure(PoolConfig pc, ClusterConfig cc)
     {
-        coin = pc.Template.As<BitcoinTemplate>();
+        coin = pc.Template.As<RavenTemplate>();
         /* extraPoolConfig = pc.Extra.SafeExtensionDataAs<BitcoinPoolConfigExtra>();
         extraPoolPaymentProcessingConfig = pc.PaymentProcessing?.Extra?.SafeExtensionDataAs<BitcoinPoolPaymentProcessingConfigExtra>();
 
@@ -170,30 +173,24 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
 
         hasLegacyDaemon = extraPoolConfig?.HasLegacyDaemon == true; */
 
+        if(pc.EnableInternalStratum == true)
+        {
+            coin.KawpowHasher.Setup(3);
+        }
+
         base.Configure(pc, cc);
     }
 
-    public virtual async ValueTask<Share> SubmitShareAsync(StratumConnection worker, object submission,
-        CancellationToken ct)
+    /* public virtual async Task<object> UpdateJobPerWorkerAsync(RavenWorkerContext context, object jobParams)
     {
-        Contract.RequiresNonNull(worker);
-        Contract.RequiresNonNull(submission);
+        Contract.RequiresNonNull(context);
+        Contract.RequiresNonNull(jobParams);
 
-        if(submission is not object[] submitParams)
-            throw new StratumException(StratumError.Other, "invalid params");
+        var currentParams = (object[]) jobParams;
+        var jobId = currentParams[0] as string;
 
-        var context = worker.ContextAs<BitcoinWorkerContext>();
-
-        // extract params
-        var workerValue = (submitParams[0] as string)?.Trim();
-        var jobId = submitParams[1] as string;
-        var extraNonce2 = submitParams[2] as string;
-        var nTime = submitParams[3] as string;
-        var nonce = submitParams[4] as string;
-        var versionBits = context.VersionRollingMask.HasValue ? submitParams[5] as string : null;
-
-        if(string.IsNullOrEmpty(workerValue))
-            throw new StratumException(StratumError.Other, "missing or invalid workername");
+        logger.Info(() => $"Params: {jobParams as string}");
+        logger.Info(() => $"Updating job {jobId} for diff {context.Difficulty}");
 
         RavenJob job;
 
@@ -205,8 +202,76 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         if(job == null)
             throw new StratumException(StratumError.JobNotFound, "job not found");
 
+        return await job.UpdateJobPerWorkerAsync(logger, context);
+    } */
+
+    public virtual void PrepareWorkerJob(RavenWorkerJob workerJob, out string headerHash)
+    {
+        headerHash = null;
+
+        var job = currentJob;
+
+
+        if(job != null)
+        {
+            lock(job)
+            {
+                job.PrepareWorkerJob(workerJob, out headerHash);
+            }
+        }
+    }
+
+    public virtual async ValueTask<Share> SubmitShareAsync(StratumConnection worker, object submission,
+        CancellationToken ct)
+    {
+        Contract.RequiresNonNull(worker);
+        Contract.RequiresNonNull(submission);
+
+        if(submission is not object[] submitParams)
+            throw new StratumException(StratumError.Other, "invalid params");
+
+        var context = worker.ContextAs<RavenWorkerContext>();
+
+        // extract params
+        var workerValue = (submitParams[0] as string)?.Trim();
+        var jobId = submitParams[1] as string;
+        var extraNonce2 = submitParams[2] as string;
+        var nTime = submitParams[3] as string;
+        var nonce = submitParams[4] as string;
+
+        if(string.IsNullOrEmpty(workerValue))
+            throw new StratumException(StratumError.Other, "missing or invalid workername");
+
+        RavenJob job;
+
+        /* lock(jobLock)
+        {
+            job = validJobs.FirstOrDefault(x => x.JobId == jobId);
+        }
+
+        if(job == null)
+            throw new StratumException(StratumError.JobNotFound, "job not found"); */
+
+        /* RavenWorkerJob job;
+
+        lock(context)
+        {
+
+            if((job = context.FindJob(jobId)) == null)
+                throw new StratumException(StratumError.MinusOne, "invalid jobid");
+        }
+
+        if(job == null)
+            throw new StratumException(StratumError.JobNotFound, "job not found");
+
+        // dupe check
+        // TODO: improve dupe check
+        if(!job.Submissions.TryAdd(nonce, true))
+            throw new StratumException(StratumError.MinusOne, "duplicate share");
+ */
+
         // validate & process
-        var (share, blockHex) = job.ProcessShare(worker, extraNonce2, nTime, nonce, versionBits);
+        var (share, blockHex) = job.ProcessShare(worker, extraNonce2, nTime, nonce, null);
 
         // enrich share with common data
         share.PoolId = poolConfig.Id;
@@ -246,5 +311,51 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         }
 
         return share;
+    }
+
+
+    protected override async Task PostStartInitAsync(CancellationToken ct)
+    {
+        if(poolConfig.EnableInternalStratum == true)
+        {
+            // make sure we have a current light cache
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+            do
+            {
+                var blockTemplate = await GetBlockTemplateAsync(ct);
+
+                if(blockTemplate != null || blockTemplate.Response != null)
+                {
+                    logger.Info(() => "Loading current light cache ...");
+
+                    await coin.KawpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height);
+
+                    logger.Info(() => "Loaded current light cache");
+                    break;
+                }
+
+                logger.Info(() => "Waiting for first valid block template");
+            } while(await timer.WaitForNextTickAsync(ct));
+        }
+        await base.PostStartInitAsync(ct);
+    }
+
+    public virtual object[] GetSubscriberData(StratumConnection worker)
+    {
+        Contract.RequiresNonNull(worker);
+
+        var context = worker.ContextAs<RavenWorkerContext>();
+
+        // assign unique ExtraNonce1 to worker (miner)
+        context.ExtraNonce1 = extraNonceProvider.Next();
+
+        // setup response data
+        var responseData = new object[]
+        {
+            context.ExtraNonce1,
+        };
+
+        return responseData;
     }
 }

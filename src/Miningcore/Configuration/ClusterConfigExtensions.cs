@@ -5,6 +5,7 @@ using JetBrains.Annotations;
 using Miningcore.Crypto;
 using Miningcore.Crypto.Hashing.Algorithms;
 using Miningcore.Crypto.Hashing.Ethash;
+using Miningcore.Crypto.Hashing.Kawpow;
 using NBitcoin;
 using Newtonsoft.Json;
 
@@ -84,6 +85,15 @@ public partial class BitcoinTemplate
 
     #endregion
 }
+
+public partial class RavenTemplate
+{
+    public RavenTemplate() : base()
+    {
+        KawpowHasher = new EthashLight();
+    }
+}
+
 
 public partial class EquihashCoinTemplate
 {
