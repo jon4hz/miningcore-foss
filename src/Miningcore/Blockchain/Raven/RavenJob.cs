@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
-using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
@@ -13,11 +12,7 @@ using Miningcore.Time;
 using Miningcore.Util;
 using NBitcoin;
 using NBitcoin.DataEncoders;
-using Newtonsoft.Json.Linq;
 using NLog;
-using NLog.Fluent;
-using Npgsql.Util;
-using Org.BouncyCastle.Math;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
 
@@ -31,20 +26,15 @@ public class RavenJobParams
 
 public class RavenJob
 {
-    protected IHashAlgorithm blockHasher;
     protected IMasterClock clock;
-    protected IHashAlgorithm coinbaseHasher;
     protected double shareMultiplier;
-    protected int extraNoncePlaceHolderLength;
+    protected IHashAlgorithm coinbaseHasher;
     protected IHashAlgorithm headerHasher;
-    protected bool isPoS;
-    protected string txComment;
-    protected PayeeBlockTemplateExtra payeeParameters;
+    protected Cache kawpowHasher;
 
     protected Network network;
     protected IDestination poolAddressDestination;
     protected RavenTemplate coin;
-    private RavenTemplate.BitcoinNetworkParams networkParams;
     protected readonly ConcurrentDictionary<string, bool> submissions = new(StringComparer.OrdinalIgnoreCase);
     protected uint256 blockTargetValue;
     protected byte[] coinbaseFinal;
@@ -58,7 +48,6 @@ public class RavenJob
     // GetJobParams related properties
 
     protected RavenJobParams jobParams;
-    protected string previousBlockHashReversedHex;
     protected Money rewardToPool;
     protected Transaction txOut;
 
@@ -97,7 +86,7 @@ public class RavenJob
 
         var sigScriptLength = (uint) (
             sigScriptInitial.Length +
-            extraNoncePlaceHolderLength +
+            RavenConstants.ExtranoncePlaceHolderLength +
             scriptSigFinalBytes.Length);
 
         // output transaction
@@ -125,8 +114,6 @@ public class RavenJob
             coinbaseInitialHex = coinbaseInitial.ToHexString();
         }
 
-        Console.WriteLine("coinbaseInitialHex: " + coinbaseInitialHex);
-
         // build coinbase final
         using(var stream = new MemoryStream())
         {
@@ -149,8 +136,6 @@ public class RavenJob
             coinbaseFinal = stream.ToArray();
             coinbaseFinalHex = coinbaseFinal.ToHexString();
         }
-
-        Console.WriteLine("coinbaseFinalHex: " + coinbaseFinalHex);
     }
 
     protected virtual byte[] SerializeOutputTransaction(Transaction tx)
@@ -160,8 +145,6 @@ public class RavenJob
         var outputCount = (uint) tx.Outputs.Count;
         if(withDefaultWitnessCommitment)
             outputCount++;
-
-        Console.WriteLine("outputCount: " + outputCount);
 
         using(var stream = new MemoryStream())
         {
@@ -231,46 +214,12 @@ public class RavenJob
         rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
         var tx = Transaction.Create(network);
 
-        /* if(coin.HasPayee)
-            rewardToPool = CreatePayeeOutput(tx, rewardToPool);
-
-        if(coin.HasMasterNodes)
-            rewardToPool = CreateMasternodeOutputs(tx, rewardToPool);
-
-        if(coin.HasFounderFee)
-            rewardToPool = CreateFounderOutputs(tx, rewardToPool);
-
-        if(coin.HasMinerFund)
-            rewardToPool = CreateMinerFundOutputs(tx, rewardToPool); */
-
         // Remaining amount goes to pool
         tx.Outputs.Add(rewardToPool, poolAddressDestination);
 
         return tx;
     }
 
-    /* protected virtual Money CreatePayeeOutput(Transaction tx, Money reward)
-    {
-        if(payeeParameters?.PayeeAmount != null && payeeParameters.PayeeAmount.Value > 0)
-        {
-            var payeeReward = new Money(payeeParameters.PayeeAmount.Value, MoneyUnit.Satoshi);
-            reward -= payeeReward;
-
-            tx.Outputs.Add(payeeReward, BitcoinUtils.AddressToDestination(payeeParameters.Payee, network));
-        }
-
-        return reward;
-    } */
-
-    protected bool RegisterSubmit(string extraNonce1, string nonce)
-    {
-        var key = new StringBuilder()
-            .Append(extraNonce1)
-            .Append(nonce) // lowercase as we don't want to accept case-sensitive values as valid.
-            .ToString();
-
-        return submissions.TryAdd(key, true);
-    }
 
     protected byte[] SerializeHeader(Span<byte> coinbaseHash)
     {
@@ -293,29 +242,9 @@ public class RavenJob
         };
 
         return blockHeader.ToBytes();
-
-        /*  var height = BlockTemplate.Height;
-         var bits = Encoders.Hex.DecodeData(BlockTemplate.Bits);
-         var nTime = BlockTemplate.CurTime;
-         var hashMerkleRoot = new uint256(merkleRoot);
-         var hashPrevBlock = uint256.Parse(BlockTemplate.PreviousBlockhash);
-
-         using(var stream = new MemoryStream())
-         {
-             var bs = new BitcoinStream(stream, true);
-
-             bs.ReadWrite(ref version);
-             bs.ReadWrite(ref hashPrevBlock);
-             bs.ReadWrite(ref hashMerkleRoot);
-             bs.ReadWrite(ref nTime);
-             bs.ReadWrite(ref bits);
-             bs.ReadWrite(ref height);
-
-             return stream.ToArray();
-         } */
     }
 
-    protected virtual (Share Share, string BlockHex) ProcessShareInternal(ILogger logger, Cache kawPowHasher,
+    protected virtual (Share Share, string BlockHex) ProcessShareInternal(ILogger logger,
         StratumConnection worker, ulong nonce, string inputHeaderHash, string mixHash)
     {
         var context = worker.ContextAs<RavenWorkerContext>();
@@ -325,13 +254,6 @@ public class RavenJob
         var coinbase = SerializeCoinbase(extraNonce1);
         Span<byte> coinbaseHash = stackalloc byte[32];
         coinbaseHasher.Digest(coinbase, coinbaseHash);
-
-
-        //logger.Info(() => $"Coinbase from share: {coinbase.ToHexString()}");
-        /* var coinbaseHashHex = coinbaseHash.ToHexString();
-        logger.Info(() => $"Coinbase hash from share: {coinbaseHashHex}");
-        var merkleRoot = mt.WithFirst(coinbaseHash.ToArray());
-        logger.Info(() => $"Merkle root from share: {merkleRoot.ToHexString()}"); */
 
         // hash block-header
         var headerBytes = SerializeHeader(coinbaseHash);
@@ -344,11 +266,10 @@ public class RavenJob
 
         if(headerHashHex != inputHeaderHash)
         {
-            logger.Info(() => $"Input: {inputHeaderHash}, Actual: {headerHashHex}");
             throw new StratumException(StratumError.MinusOne, "bad header-hash");
         }
 
-        if(!kawPowHasher.Compute(logger, (int) BlockTemplate.Height, headerHash.ToArray(), nonce, out var mixHashOut, out var resultBytes))
+        if(!kawpowHasher.Compute(logger, (int) BlockTemplate.Height, headerHash.ToArray(), nonce, out var mixHashOut, out var resultBytes))
             throw new StratumException(StratumError.MinusOne, "bad hash");
 
         resultBytes.ReverseInPlace();
@@ -360,8 +281,6 @@ public class RavenJob
         var shareDiff = (double) new BigRational(RavenConstants.Diff1, resultValueBig) * shareMultiplier;
         var stratumDifficulty = context.Difficulty;
         var ratio = shareDiff / stratumDifficulty;
-
-        logger.Info(() => $"Found share with ration {ratio} and diff {shareDiff}");
 
         // check if the share meets the much harder block difficulty (block candidate)
         var isBlockCandidate = resultValue <= blockTargetValue;
@@ -384,11 +303,6 @@ public class RavenJob
             else
                 throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
         }
-
-
-        //tmp
-        /* var stratumDifficulty = 0.01;
-        var isBlockCandidate = true; */
 
         var result = new Share
         {
@@ -460,120 +374,6 @@ public class RavenJob
         }
     }
 
-    /*     #region Masternodes
-
-        protected MasterNodeBlockTemplateExtra masterNodeParameters;
-
-        protected virtual Money CreateMasternodeOutputs(Transaction tx, Money reward)
-        {
-            if(masterNodeParameters.Masternode != null)
-            {
-                Masternode[] masternodes;
-
-                // Dash v13 Multi-Master-Nodes
-                if(masterNodeParameters.Masternode.Type == JTokenType.Array)
-                    masternodes = masterNodeParameters.Masternode.ToObject<Masternode[]>();
-                else
-                    masternodes = new[] { masterNodeParameters.Masternode.ToObject<Masternode>() };
-
-                if(masternodes != null)
-                {
-                    foreach(var masterNode in masternodes)
-                    {
-                        if(!string.IsNullOrEmpty(masterNode.Payee))
-                        {
-                            var payeeDestination = BitcoinUtils.AddressToDestination(masterNode.Payee, network);
-                            var payeeReward = masterNode.Amount;
-
-                            tx.Outputs.Add(payeeReward, payeeDestination);
-                            reward -= payeeReward;
-                        }
-                    }
-                }
-            }
-
-            if(masterNodeParameters.SuperBlocks is { Length: > 0 })
-            {
-                foreach(var superBlock in masterNodeParameters.SuperBlocks)
-                {
-                    var payeeAddress = BitcoinUtils.AddressToDestination(superBlock.Payee, network);
-                    var payeeReward = superBlock.Amount;
-
-                    tx.Outputs.Add(payeeReward, payeeAddress);
-                    reward -= payeeReward;
-                }
-            }
-
-            if(!coin.HasPayee && !string.IsNullOrEmpty(masterNodeParameters.Payee))
-            {
-                var payeeAddress = BitcoinUtils.AddressToDestination(masterNodeParameters.Payee, network);
-                var payeeReward = masterNodeParameters.PayeeAmount;
-
-                tx.Outputs.Add(payeeReward, payeeAddress);
-                reward -= payeeReward;
-            }
-
-            return reward;
-        }
-
-        #endregion // Masternodes */
-
-    /* #region Founder
-
-    protected FounderBlockTemplateExtra founderParameters;
-
-    protected virtual Money CreateFounderOutputs(Transaction tx, Money reward)
-    {
-        if(founderParameters.Founder != null)
-        {
-            Founder[] founders;
-            if(founderParameters.Founder.Type == JTokenType.Array)
-                founders = founderParameters.Founder.ToObject<Founder[]>();
-            else
-                founders = new[] { founderParameters.Founder.ToObject<Founder>() };
-
-            if(founders != null)
-            {
-                foreach(var Founder in founders)
-                {
-                    if(!string.IsNullOrEmpty(Founder.Payee))
-                    {
-                        var payeeAddress = BitcoinUtils.AddressToDestination(Founder.Payee, network);
-                        var payeeReward = Founder.Amount;
-
-                        tx.Outputs.Add(payeeReward, payeeAddress);
-                        reward -= payeeReward;
-                    }
-                }
-            }
-        }
-
-        return reward;
-    }
-
-    #endregion // Founder
-
-    #region Minerfund
-
-    protected MinerFundTemplateExtra minerFundParameters;
-
-    protected virtual Money CreateMinerFundOutputs(Transaction tx, Money reward)
-    {
-        var payeeReward = minerFundParameters.MinimumValue;
-
-        if(!string.IsNullOrEmpty(minerFundParameters.Addresses?.FirstOrDefault()))
-        {
-            var payeeAddress = BitcoinUtils.AddressToDestination(minerFundParameters.Addresses[0], network);
-            tx.Outputs.Add(payeeReward, payeeAddress);
-        }
-
-        reward -= payeeReward;
-
-        return reward;
-    }
-
-    #endregion // Founder */
-
     #region API-Surface
 
     public BlockTemplate BlockTemplate { get; protected set; }
@@ -586,7 +386,7 @@ public class RavenJob
         ClusterConfig cc, IMasterClock clock,
         IDestination poolAddressDestination, Network network,
         bool isPoS, double shareMultiplier, IHashAlgorithm coinbaseHasher,
-        IHashAlgorithm headerHasher, IHashAlgorithm blockHasher)
+        IHashAlgorithm headerHasher, Cache kawpowHasher)
     {
         Contract.RequiresNonNull(blockTemplate);
         Contract.RequiresNonNull(pc);
@@ -595,11 +395,10 @@ public class RavenJob
         Contract.RequiresNonNull(poolAddressDestination);
         Contract.RequiresNonNull(coinbaseHasher);
         Contract.RequiresNonNull(headerHasher);
-        Contract.RequiresNonNull(blockHasher);
+        Contract.RequiresNonNull(kawpowHasher);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(jobId));
 
         coin = pc.Template.As<RavenTemplate>();
-        networkParams = coin.GetNetwork(network.ChainName);
         txVersion = coin.CoinbaseTxVersion;
         this.network = network;
         this.clock = clock;
@@ -614,16 +413,11 @@ public class RavenJob
 
         Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
 
-        extraNoncePlaceHolderLength = RavenConstants.ExtranoncePlaceHolderLength;
-        this.isPoS = isPoS;
         this.shareMultiplier = shareMultiplier;
-
-        txComment = !string.IsNullOrEmpty(extraPoolConfig?.CoinbaseTxComment) ?
-            extraPoolConfig.CoinbaseTxComment : coin.CoinbaseTxComment;
 
         this.coinbaseHasher = coinbaseHasher;
         this.headerHasher = headerHasher;
-        this.blockHasher = blockHasher;
+        this.kawpowHasher = kawpowHasher;
 
         if(!string.IsNullOrEmpty(BlockTemplate.Target))
             blockTargetValue = new uint256(BlockTemplate.Target);
@@ -633,66 +427,27 @@ public class RavenJob
             blockTargetValue = tmp.ToUInt256();
         }
 
-        previousBlockHashReversedHex = BlockTemplate.PreviousBlockhash
-            .HexToByteArray()
-            .ReverseByteOrder()
-            .ToHexString();
-
         BuildMerkleBranches();
         BuildCoinbase();
-
-        /* jobParams = new object[]
-        {
-            JobId,
-            previousBlockHashReversedHex,
-            coinbaseInitialHex,
-            coinbaseFinalHex,
-            merkleBranchesHex,
-            BlockTemplate.Version.ToStringHex8(),
-            BlockTemplate.Bits,
-            BlockTemplate.CurTime.ToStringHex8(),
-            false
-        }; */
 
         jobParams = new RavenJobParams
         {
             Height = BlockTemplate.Height,
             CleanJobs = false
         };
-
-        /* var context = worker.ContextAs<RavenWorkerContext>();
-        var extraNonce1 = context.ExtraNonce1; */
     }
-
-    /*  public virtual async Task<object> UpdateJobPerWorkerAsync(ILogger logger, RavenWorkerContext context)
-     {
-         var kawpowHasher = await coin.KawpowHasher.GetCacheAsync(logger, 1);
-         var headerHash = CreateHeaderHash(context, kawpowHasher);
-
-         return new object[]
-         {
-             this.JobId,
-             headerHash,
-             kawpowHasher.SeedHash.ToHexString(),
-             RavenUtils.EncodeTarget(context.Difficulty),
-             false,
-             BlockTemplate.Height,
-             BlockTemplate.Bits
-         };
-     } */
 
     public virtual void PrepareWorkerJob(ILogger logger, RavenWorkerJob workerJob, out string headerHash)
     {
         workerJob.Job = this;
         workerJob.Height = BlockTemplate.Height;
         workerJob.Bits = BlockTemplate.Bits;
+        workerJob.SeedHash = kawpowHasher.SeedHash.ToHexString();
         headerHash = CreateHeaderHash(logger, workerJob);
     }
 
     protected virtual string CreateHeaderHash(ILogger logger, RavenWorkerJob workerJob)
     {
-        Console.WriteLine("ExtraNonce1: " + workerJob.ExtraNonce1);
-
         var headerHasher = coin.HeaderHasherValue;
         var coinbaseHasher = coin.CoinbaseHasherValue;
         var extraNonce1 = workerJob.ExtraNonce1;
@@ -715,7 +470,7 @@ public class RavenJob
         return jobParams;
     }
 
-    public virtual (Share Share, string BlockHex) ProcessShare(ILogger logger, Cache kawPowHasher, StratumConnection worker, string nonce, string headerHash, string mixHash)
+    public virtual (Share Share, string BlockHex) ProcessShare(ILogger logger, StratumConnection worker, string nonce, string headerHash, string mixHash)
     {
         Contract.RequiresNonNull(worker);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nonce));
@@ -736,16 +491,7 @@ public class RavenJob
 
         var nonceLong = ulong.Parse(nonce, NumberStyles.HexNumber);
 
-        /* logger.Info(() => $"NonceHex:    {nonce}");
-        logger.Info(() => $"ExtraNonce1: {context.ExtraNonce1}");
-        logger.Info(() => $"Nonce:       {nonceLong}"); */
-
-
-        // dupe check
-        if(!RegisterSubmit(context.ExtraNonce1, nonce))
-            throw new StratumException(StratumError.DuplicateShare, "duplicate share");
-
-        return ProcessShareInternal(logger, kawPowHasher, worker, nonceLong, headerHash, mixHash);
+        return ProcessShareInternal(logger, worker, nonceLong, headerHash, mixHash);
     }
 
     #endregion // API-Surface

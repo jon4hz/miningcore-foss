@@ -7,7 +7,6 @@ using AutoMapper;
 using Microsoft.IO;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Configuration;
-using Miningcore.Extensions;
 using Miningcore.JsonRpc;
 using Miningcore.Messaging;
 using Miningcore.Mining;
@@ -18,9 +17,6 @@ using Miningcore.Persistence.Repositories;
 using Miningcore.Stratum;
 using Miningcore.Time;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using NLog;
-using Npgsql.Replication.PgOutput.Messages;
 using static Miningcore.Util.ActionUtils;
 
 namespace Miningcore.Blockchain.Raven;
@@ -84,7 +80,7 @@ public class RavenPool : PoolBase
             context.SetDifficulty(nicehashDiff.Value);
         }
 
-        var minerJobParams = await CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
+        var minerJobParams = CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
         // send intial update
         await connection.NotifyAsync(RavenStratumMethods.SetDifficulty, new object[] { RavenUtils.EncodeTarget(context.Difficulty) });
         await connection.NotifyAsync(RavenStratumMethods.MiningNotify, minerJobParams);
@@ -154,20 +150,18 @@ public class RavenPool : PoolBase
         }
     }
 
-    private async Task<object> CreateWorkerJob(StratumConnection connection, int block, bool update)
+    private object CreateWorkerJob(StratumConnection connection, int block, bool update)
     {
         var context = connection.ContextAs<RavenWorkerContext>();
         var job = new RavenWorkerJob(NextJobId(), context.ExtraNonce1);
-        var kawpowHasher = await coin.KawpowHasher.GetCacheAsync(logger, block); // TODO: dont create hasher for every job
 
         manager.PrepareWorkerJob(job, out var headerHash);
-
 
         var result = new object[]
         {
              job.Id,
              headerHash,
-             kawpowHasher.SeedHash.ToHexString(),
+             job.SeedHash,
              RavenUtils.EncodeTarget(context.Difficulty),
              update,
              job.Height,
@@ -269,7 +263,7 @@ public class RavenPool : PoolBase
         {
             var context = connection.ContextAs<RavenWorkerContext>();
 
-            var minerJobParams = await CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
+            var minerJobParams = CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
 
             if(context.ApplyPendingDifficulty())
                 await connection.NotifyAsync(RavenStratumMethods.SetDifficulty, new object[] { RavenUtils.EncodeTarget(context.Difficulty) });
@@ -395,7 +389,7 @@ public class RavenPool : PoolBase
         if(connection.Context.ApplyPendingDifficulty())
         {
             var context = connection.ContextAs<RavenWorkerContext>();
-            var minerJobParams = await CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
+            var minerJobParams = CreateWorkerJob(connection, (int) currentJobParams.Height, currentJobParams.CleanJobs);
 
             await connection.NotifyAsync(RavenStratumMethods.SetDifficulty, new object[] { RavenUtils.EncodeTarget(connection.Context.Difficulty) });
             await connection.NotifyAsync(RavenStratumMethods.MiningNotify, minerJobParams);

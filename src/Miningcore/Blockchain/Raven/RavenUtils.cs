@@ -1,4 +1,3 @@
-using Miningcore.Configuration;
 using Miningcore.Extensions;
 using Org.BouncyCastle.Math;
 

@@ -1,4 +1,3 @@
-using System.Threading.Tasks.Dataflow;
 using Autofac;
 using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
@@ -6,16 +5,13 @@ using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
 using Miningcore.Contracts;
 using Miningcore.Crypto;
-using Miningcore.Crypto.Hashing.Kawpow;
 using Miningcore.Extensions;
 using Miningcore.JsonRpc;
 using Miningcore.Messaging;
-using Miningcore.Native;
 using Miningcore.Rpc;
 using Miningcore.Stratum;
 using Miningcore.Time;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using NLog;
 
 namespace Miningcore.Blockchain.Raven;
@@ -100,10 +96,11 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
             {
                 job = CreateJob();
 
+                var kawpowHasher = await coin.KawpowHasher.GetCacheAsync(logger, (int) blockTemplate.Height);
+
                 job.Init(blockTemplate, NextJobId(),
                     poolConfig, extraPoolConfig, clusterConfig, clock, poolAddressDestination, network, isPoS,
-                    ShareMultiplier, coin.CoinbaseHasherValue, coin.HeaderHasherValue,
-                    !isPoS ? coin.BlockHasherValue : coin.PoSBlockHasherValue ?? coin.BlockHasherValue);
+                    ShareMultiplier, coin.CoinbaseHasherValue, coin.HeaderHasherValue, kawpowHasher);
 
                 lock(jobLock)
                 {
@@ -165,13 +162,13 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
     public override void Configure(PoolConfig pc, ClusterConfig cc)
     {
         coin = pc.Template.As<RavenTemplate>();
-        /* extraPoolConfig = pc.Extra.SafeExtensionDataAs<BitcoinPoolConfigExtra>();
+        extraPoolConfig = pc.Extra.SafeExtensionDataAs<BitcoinPoolConfigExtra>();
         extraPoolPaymentProcessingConfig = pc.PaymentProcessing?.Extra?.SafeExtensionDataAs<BitcoinPoolPaymentProcessingConfigExtra>();
 
         if(extraPoolConfig?.MaxActiveJobs.HasValue == true)
             maxActiveJobs = extraPoolConfig.MaxActiveJobs.Value;
 
-        hasLegacyDaemon = extraPoolConfig?.HasLegacyDaemon == true; */
+        hasLegacyDaemon = extraPoolConfig?.HasLegacyDaemon == true;
 
         if(pc.EnableInternalStratum == true)
         {
@@ -180,30 +177,6 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
 
         base.Configure(pc, cc);
     }
-
-    /* public virtual async Task<object> UpdateJobPerWorkerAsync(RavenWorkerContext context, object jobParams)
-    {
-        Contract.RequiresNonNull(context);
-        Contract.RequiresNonNull(jobParams);
-
-        var currentParams = (object[]) jobParams;
-        var jobId = currentParams[0] as string;
-
-        logger.Info(() => $"Params: {jobParams as string}");
-        logger.Info(() => $"Updating job {jobId} for diff {context.Difficulty}");
-
-        RavenJob job;
-
-        lock(jobLock)
-        {
-            job = validJobs.FirstOrDefault(x => x.JobId == jobId);
-        }
-
-        if(job == null)
-            throw new StratumException(StratumError.JobNotFound, "job not found");
-
-        return await job.UpdateJobPerWorkerAsync(logger, context);
-    } */
 
     public virtual void PrepareWorkerJob(RavenWorkerJob workerJob, out string headerHash)
     {
@@ -254,41 +227,11 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
             throw new StratumException(StratumError.JobNotFound, "job not found");
 
         // dupe check
-        // TODO: improve dupe check
-        if(!job.Submissions.TryAdd(submitParams[2] as string, true))
-            throw new StratumException(StratumError.MinusOne, "duplicate share");
+        if(!job.RegisterSubmit(context.ExtraNonce1, nonce, headerHash, mixHash))
+            throw new StratumException(StratumError.DuplicateShare, "duplicate share");
 
-        //RavenJob job;
-
-        /* lock(jobLock)
-        {
-            job = validJobs.FirstOrDefault(x => x.JobId == jobId);
-        }
-
-        if(job == null)
-            throw new StratumException(StratumError.JobNotFound, "job not found"); */
-
-        /* RavenWorkerJob job;
-
-        lock(context)
-        {
-
-            if((job = context.FindJob(jobId)) == null)
-                throw new StratumException(StratumError.MinusOne, "invalid jobid");
-        }
-
-        if(job == null)
-            throw new StratumException(StratumError.JobNotFound, "job not found");
-
-        // dupe check
-        // TODO: improve dupe check
-        if(!job.Submissions.TryAdd(nonce, true))
-            throw new StratumException(StratumError.MinusOne, "duplicate share");
- */
-
-        var hasher = await coin.KawpowHasher.GetCacheAsync(logger, (int) job.Job.BlockTemplate.Height);
         // validate & process
-        var (share, blockHex) = job.Job.ProcessShare(logger, hasher, worker, nonce, headerHash, mixHash);
+        var (share, blockHex) = job.Job.ProcessShare(logger, worker, nonce, headerHash, mixHash);
 
         // enrich share with common data
         share.PoolId = poolConfig.Id;
@@ -329,6 +272,8 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
 
         return share;
     }
+
+
 
 
     protected override async Task PostStartInitAsync(CancellationToken ct)
