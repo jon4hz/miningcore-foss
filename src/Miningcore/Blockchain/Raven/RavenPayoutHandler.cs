@@ -1,5 +1,6 @@
-using Autofac;
+/* using Autofac;
 using AutoMapper;
+using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Configuration;
 using Miningcore.Messaging;
 using Miningcore.Payments;
@@ -7,7 +8,7 @@ using Miningcore.Persistence;
 using Miningcore.Persistence.Repositories;
 using Miningcore.Time;
 
-namespace Miningcore.Blockchain.Bitcoin;
+namespace Miningcore.Blockchain.Raven;
 
 [CoinFamily(CoinFamily.Raven)]
 public class RavenPayoutHandler : BitcoinPayoutHandler,
@@ -26,4 +27,4 @@ public class RavenPayoutHandler : BitcoinPayoutHandler,
         base(ctx, cf, mapper, shareRepo, blockRepo, balanceRepo, paymentRepo, clock, messageBus)
     {
     }
-}
+} */

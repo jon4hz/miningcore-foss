@@ -97,8 +97,8 @@ public class RavenJob
 
         var sigScriptLength = (uint) (
             sigScriptInitial.Length +
-            extraNoncePlaceHolderLength /* +
-            scriptSigFinalBytes.Length */);
+            extraNoncePlaceHolderLength +
+            scriptSigFinalBytes.Length);
 
         // output transaction
         txOut = CreateOutputTransaction();
@@ -133,7 +133,7 @@ public class RavenJob
             var bs = new BitcoinStream(stream, true);
 
             // signature script final part
-            //bs.ReadWrite(ref scriptSigFinalBytes);
+            bs.ReadWrite(ref scriptSigFinalBytes);
 
             // tx in sequence
             bs.ReadWrite(ref txInSequence);
@@ -146,7 +146,7 @@ public class RavenJob
             bs.ReadWrite(ref txLockTime);
 
             // Extension point
-            //AppendCoinbaseFinal(bs);
+            AppendCoinbaseFinal(bs);
 
             // done
             coinbaseFinal = stream.ToArray();
@@ -156,20 +156,20 @@ public class RavenJob
         Console.WriteLine("coinbaseFinalHex: " + coinbaseFinalHex);
     }
 
-    /* protected virtual void AppendCoinbaseFinal(BitcoinStream bs)
+    protected virtual void AppendCoinbaseFinal(BitcoinStream bs)
     {
         if(!string.IsNullOrEmpty(txComment))
         {
             var data = Encoding.ASCII.GetBytes(txComment);
             bs.ReadWriteAsVarString(ref data);
         }
-
-        if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
-        {
-            var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
-            bs.ReadWriteAsVarString(ref data);
-        }
-    } */
+        /* 
+                if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
+                {
+                    var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
+                    bs.ReadWriteAsVarString(ref data);
+                } */
+    }
 
     protected virtual byte[] SerializeOutputTransaction(Transaction tx)
     {
@@ -625,10 +625,10 @@ public class RavenJob
         BlockTemplate = blockTemplate;
         JobId = jobId;
 
-        /* var coinbaseString = !string.IsNullOrEmpty(cc.PaymentProcessing?.CoinbaseString) ?
+        var coinbaseString = !string.IsNullOrEmpty(cc.PaymentProcessing?.CoinbaseString) ?
             cc.PaymentProcessing?.CoinbaseString.Trim() : "Miningcore";
 
-        scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes(); */
+        scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes();
 
         Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
 
