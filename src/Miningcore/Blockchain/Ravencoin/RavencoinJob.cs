@@ -1,6 +1,6 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using Miningcore.Blockchain.Bitcoin;
 using Miningcore.Blockchain.Bitcoin.Configuration;
 using Miningcore.Blockchain.Bitcoin.DaemonResponses;
 using Miningcore.Configuration;
@@ -14,7 +14,6 @@ using NBitcoin;
 using NBitcoin.DataEncoders;
 using NLog;
 using Contract = Miningcore.Contracts.Contract;
-using Transaction = NBitcoin.Transaction;
 
 namespace Miningcore.Blockchain.Ravencoin;
 
@@ -24,202 +23,10 @@ public class RavencoinJobParams
     public bool CleanJobs { get; set; }
 }
 
-public class RavencoinJob
+public class RavencoinJob : BitcoinJob
 {
-    protected IMasterClock clock;
-    protected double shareMultiplier;
-    protected IHashAlgorithm coinbaseHasher;
-    protected IHashAlgorithm headerHasher;
     protected Cache kawpowHasher;
-
-    protected Network network;
-    protected IDestination poolAddressDestination;
-    protected RavencoinTemplate coin;
-    protected readonly ConcurrentDictionary<string, bool> submissions = new(StringComparer.OrdinalIgnoreCase);
-    protected uint256 blockTargetValue;
-    protected byte[] coinbaseFinal;
-    protected string coinbaseFinalHex;
-    protected byte[] coinbaseInitial;
-    protected string coinbaseInitialHex;
-    protected string[] merkleBranchesHex;
-    protected MerkleTree mt;
-
-    ///////////////////////////////////////////
-    // GetJobParams related properties
-
-    protected RavencoinJobParams jobParams;
-    protected Money rewardToPool;
-    protected Transaction txOut;
-
-    // serialization constants
-    protected byte[] scriptSigFinalBytes;
-
-    protected static byte[] sha256Empty = new byte[32];
-    protected uint txVersion = 1u; // transaction version (currently 1) - see https://en.bitcoin.it/wiki/Transaction
-
-    protected static uint txInputCount = 1u;
-    protected static uint txInPrevOutIndex = (uint) (Math.Pow(2, 32) - 1);
-    protected static uint txInSequence;
-    protected static uint txLockTime;
-
-    protected virtual void BuildMerkleBranches()
-    {
-        var transactionHashes = BlockTemplate.Transactions
-            .Select(tx => (tx.TxId ?? tx.Hash)
-            //.Select(tx => (tx.TxId)
-                .HexToByteArray()
-                .ReverseInPlace())
-            .ToArray();
-
-        mt = new MerkleTree(transactionHashes);
-
-        merkleBranchesHex = mt.Steps
-            .Select(x => x.ToHexString())
-            .ToArray();
-    }
-
-    protected virtual void BuildCoinbase()
-    {
-        // generate script parts
-        var sigScriptInitial = GenerateScriptSigInitial();
-        var sigScriptInitialBytes = sigScriptInitial.ToBytes();
-
-        var sigScriptLength = (uint) (
-            sigScriptInitial.Length +
-            RavencoinConstants.ExtranoncePlaceHolderLength +
-            scriptSigFinalBytes.Length);
-
-        // output transaction
-        txOut = CreateOutputTransaction();
-
-        // build coinbase initial
-        using(var stream = new MemoryStream())
-        {
-            var bs = new BitcoinStream(stream, true);
-
-            // version
-            bs.ReadWrite(ref txVersion);
-
-            // serialize (simulated) input transaction
-            bs.ReadWriteAsVarInt(ref txInputCount);
-            bs.ReadWrite(ref sha256Empty);
-            bs.ReadWrite(ref txInPrevOutIndex);
-
-            // signature script initial part
-            bs.ReadWriteAsVarInt(ref sigScriptLength);
-            bs.ReadWrite(ref sigScriptInitialBytes);
-
-            // done
-            coinbaseInitial = stream.ToArray();
-            coinbaseInitialHex = coinbaseInitial.ToHexString();
-        }
-
-        // build coinbase final
-        using(var stream = new MemoryStream())
-        {
-            var bs = new BitcoinStream(stream, true);
-
-            // signature script final part
-            bs.ReadWrite(ref scriptSigFinalBytes);
-
-            // tx in sequence
-            bs.ReadWrite(ref txInSequence);
-
-            // serialize output transaction
-            var txOutBytes = SerializeOutputTransaction(txOut);
-            bs.ReadWrite(ref txOutBytes);
-
-            // misc
-            bs.ReadWrite(ref txLockTime);
-
-            // done
-            coinbaseFinal = stream.ToArray();
-            coinbaseFinalHex = coinbaseFinal.ToHexString();
-        }
-    }
-
-    protected virtual byte[] SerializeOutputTransaction(Transaction tx)
-    {
-        var withDefaultWitnessCommitment = !string.IsNullOrEmpty(BlockTemplate.DefaultWitnessCommitment);
-
-        var outputCount = (uint) tx.Outputs.Count;
-        if(withDefaultWitnessCommitment)
-            outputCount++;
-
-        using(var stream = new MemoryStream())
-        {
-            var bs = new BitcoinStream(stream, true);
-
-            // write output count
-            bs.ReadWriteAsVarInt(ref outputCount);
-
-            long amount;
-            byte[] raw;
-            uint rawLength;
-
-            // serialize outputs
-            foreach(var output in tx.Outputs)
-            {
-                amount = output.Value.Satoshi;
-                var outScript = output.ScriptPubKey;
-                raw = outScript.ToBytes(true);
-                rawLength = (uint) raw.Length;
-
-                bs.ReadWrite(ref amount);
-                bs.ReadWriteAsVarInt(ref rawLength);
-                bs.ReadWrite(ref raw);
-            }
-
-            // serialize witness (segwit)
-            if(withDefaultWitnessCommitment)
-            {
-                amount = 0;
-                raw = BlockTemplate.DefaultWitnessCommitment.HexToByteArray();
-                rawLength = (uint) raw.Length;
-
-                bs.ReadWrite(ref amount);
-                bs.ReadWriteAsVarInt(ref rawLength);
-                bs.ReadWrite(ref raw);
-            }
-
-            return stream.ToArray();
-        }
-    }
-
-    protected virtual Script GenerateScriptSigInitial()
-    {
-        var now = ((DateTimeOffset) clock.Now).ToUnixTimeSeconds();
-
-        // script ops
-        var ops = new List<Op>();
-
-        // push block height
-        ops.Add(Op.GetPushOp(BlockTemplate.Height));
-
-        // optionally push aux-flags
-        if(!coin.CoinbaseIgnoreAuxFlags && !string.IsNullOrEmpty(BlockTemplate.CoinbaseAux?.Flags))
-            ops.Add(Op.GetPushOp(BlockTemplate.CoinbaseAux.Flags.HexToByteArray()));
-
-        // push timestamp
-        ops.Add(Op.GetPushOp(now));
-
-        // push placeholder
-        ops.Add(Op.GetPushOp(0));
-
-        return new Script(ops);
-    }
-
-    protected virtual Transaction CreateOutputTransaction()
-    {
-        rewardToPool = new Money(BlockTemplate.CoinbaseValue, MoneyUnit.Satoshi);
-        var tx = Transaction.Create(network);
-
-        // Remaining amount goes to pool
-        tx.Outputs.Add(rewardToPool, poolAddressDestination);
-
-        return tx;
-    }
-
+    protected new RavencoinJobParams jobParams;
 
     protected byte[] SerializeHeader(Span<byte> coinbaseHash)
     {
@@ -360,26 +167,7 @@ public class RavencoinJob
         }
     }
 
-    protected virtual byte[] BuildRawTransactionBuffer()
-    {
-        using(var stream = new MemoryStream())
-        {
-            foreach(var tx in BlockTemplate.Transactions)
-            {
-                var txRaw = tx.Data.HexToByteArray();
-                stream.Write(txRaw);
-            }
-
-            return stream.ToArray();
-        }
-    }
-
     #region API-Surface
-
-    public BlockTemplate BlockTemplate { get; protected set; }
-    public double Difficulty { get; protected set; }
-
-    public string JobId { get; protected set; }
 
     public void Init(BlockTemplate blockTemplate, string jobId,
         PoolConfig pc, BitcoinPoolConfigExtra extraPoolConfig,
@@ -398,21 +186,22 @@ public class RavencoinJob
         Contract.RequiresNonNull(kawpowHasher);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(jobId));
 
-        coin = pc.Template.As<RavencoinTemplate>();
-        txVersion = coin.CoinbaseTxVersion;
+        this.coin = pc.Template.As<RavencoinTemplate>();
+        this.txVersion = coin.CoinbaseTxVersion;
         this.network = network;
         this.clock = clock;
         this.poolAddressDestination = poolAddressDestination;
-        BlockTemplate = blockTemplate;
-        JobId = jobId;
+        this.BlockTemplate = blockTemplate;
+        this.JobId = jobId;
 
         var coinbaseString = !string.IsNullOrEmpty(cc.PaymentProcessing?.CoinbaseString) ?
             cc.PaymentProcessing?.CoinbaseString.Trim() : "Miningcore";
 
-        scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes();
+        this.scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes();
 
-        Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
+        this.Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
 
+        this.extraNoncePlaceHolderLength = RavencoinConstants.ExtranoncePlaceHolderLength;
         this.shareMultiplier = shareMultiplier;
 
         this.coinbaseHasher = coinbaseHasher;
@@ -420,33 +209,39 @@ public class RavencoinJob
         this.kawpowHasher = kawpowHasher;
 
         if(!string.IsNullOrEmpty(BlockTemplate.Target))
-            blockTargetValue = new uint256(BlockTemplate.Target);
+            this.blockTargetValue = new uint256(BlockTemplate.Target);
         else
         {
             var tmp = new Target(BlockTemplate.Bits.HexToByteArray());
-            blockTargetValue = tmp.ToUInt256();
+            this.blockTargetValue = tmp.ToUInt256();
         }
 
         BuildMerkleBranches();
         BuildCoinbase();
 
-        jobParams = new RavencoinJobParams
+        this.jobParams = new RavencoinJobParams
         {
             Height = BlockTemplate.Height,
             CleanJobs = false
         };
     }
 
-    public virtual void PrepareWorkerJob(ILogger logger, RavencoinWorkerJob workerJob, out string headerHash)
+    public new object GetJobParams(bool isNew)
+    {
+        jobParams.CleanJobs = isNew;
+        return jobParams;
+    }
+
+    public virtual void PrepareWorkerJob(RavencoinWorkerJob workerJob, out string headerHash)
     {
         workerJob.Job = this;
         workerJob.Height = BlockTemplate.Height;
         workerJob.Bits = BlockTemplate.Bits;
         workerJob.SeedHash = kawpowHasher.SeedHash.ToHexString();
-        headerHash = CreateHeaderHash(logger, workerJob);
+        headerHash = CreateHeaderHash(workerJob);
     }
 
-    protected virtual string CreateHeaderHash(ILogger logger, RavencoinWorkerJob workerJob)
+    protected virtual string CreateHeaderHash(RavencoinWorkerJob workerJob)
     {
         var headerHasher = coin.HeaderHasherValue;
         var coinbaseHasher = coin.CoinbaseHasherValue;
@@ -462,12 +257,6 @@ public class RavencoinJob
         headerHash.Reverse();
 
         return headerHash.ToHexString();
-    }
-
-    public object GetJobParams(bool isNew)
-    {
-        jobParams.CleanJobs = isNew;
-        return jobParams;
     }
 
     public virtual (Share Share, string BlockHex) ProcessShare(ILogger logger, StratumConnection worker, string nonce, string headerHash, string mixHash)

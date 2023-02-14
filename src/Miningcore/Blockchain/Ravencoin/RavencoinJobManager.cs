@@ -63,6 +63,33 @@ public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
         }
     }
 
+    protected override async Task PostStartInitAsync(CancellationToken ct)
+    {
+        if(poolConfig.EnableInternalStratum == true)
+        {
+            // make sure we have a current light cache
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+
+            do
+            {
+                var blockTemplate = await GetBlockTemplateAsync(ct);
+
+                if(blockTemplate != null || blockTemplate.Response != null)
+                {
+                    logger.Info(() => "Loading current light cache ...");
+
+                    await coin.KawpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height);
+
+                    logger.Info(() => "Loaded current light cache");
+                    break;
+                }
+
+                logger.Info(() => "Waiting for first valid block template");
+            } while(await timer.WaitForNextTickAsync(ct));
+        }
+        await base.PostStartInitAsync(ct);
+    }
+
     protected override async Task<(bool IsNew, bool Force)> UpdateJob(CancellationToken ct, bool forceUpdate, string via = null, string json = null)
     {
         try
@@ -101,15 +128,6 @@ public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
                 job.Init(blockTemplate, NextJobId(),
                     poolConfig, extraPoolConfig, clusterConfig, clock, poolAddressDestination, network, isPoS,
                     ShareMultiplier, coin.CoinbaseHasherValue, coin.HeaderHasherValue, kawpowHasher);
-
-                lock(jobLock)
-                {
-                    validJobs.Insert(0, job);
-
-                    // trim active jobs
-                    while(validJobs.Count > maxActiveJobs)
-                        validJobs.RemoveAt(validJobs.Count - 1);
-                }
 
                 if(isNew)
                 {
@@ -159,6 +177,8 @@ public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
         return job?.GetJobParams(isNew);
     }
 
+    #region API-Surface
+
     public override void Configure(PoolConfig pc, ClusterConfig cc)
     {
         coin = pc.Template.As<RavencoinTemplate>();
@@ -178,18 +198,35 @@ public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
         base.Configure(pc, cc);
     }
 
+    public virtual object[] GetSubscriberData(StratumConnection worker)
+    {
+        Contract.RequiresNonNull(worker);
+
+        var context = worker.ContextAs<RavencoinWorkerContext>();
+
+        // assign unique ExtraNonce1 to worker (miner)
+        context.ExtraNonce1 = extraNonceProvider.Next();
+
+        // setup response data
+        var responseData = new object[]
+        {
+            context.ExtraNonce1,
+        };
+
+        return responseData;
+    }
+
     public virtual void PrepareWorkerJob(RavencoinWorkerJob workerJob, out string headerHash)
     {
         headerHash = null;
 
         var job = currentJob;
 
-
         if(job != null)
         {
             lock(job)
             {
-                job.PrepareWorkerJob(logger, workerJob, out headerHash);
+                job.PrepareWorkerJob(workerJob, out headerHash);
             }
         }
     }
@@ -273,51 +310,5 @@ public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
         return share;
     }
 
-
-
-
-    protected override async Task PostStartInitAsync(CancellationToken ct)
-    {
-        if(poolConfig.EnableInternalStratum == true)
-        {
-            // make sure we have a current light cache
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-
-            do
-            {
-                var blockTemplate = await GetBlockTemplateAsync(ct);
-
-                if(blockTemplate != null || blockTemplate.Response != null)
-                {
-                    logger.Info(() => "Loading current light cache ...");
-
-                    await coin.KawpowHasher.GetCacheAsync(logger, (int) blockTemplate.Response.Height);
-
-                    logger.Info(() => "Loaded current light cache");
-                    break;
-                }
-
-                logger.Info(() => "Waiting for first valid block template");
-            } while(await timer.WaitForNextTickAsync(ct));
-        }
-        await base.PostStartInitAsync(ct);
-    }
-
-    public virtual object[] GetSubscriberData(StratumConnection worker)
-    {
-        Contract.RequiresNonNull(worker);
-
-        var context = worker.ContextAs<RavencoinWorkerContext>();
-
-        // assign unique ExtraNonce1 to worker (miner)
-        context.ExtraNonce1 = extraNonceProvider.Next();
-
-        // setup response data
-        var responseData = new object[]
-        {
-            context.ExtraNonce1,
-        };
-
-        return responseData;
-    }
+    #endregion // API-Surface
 }
