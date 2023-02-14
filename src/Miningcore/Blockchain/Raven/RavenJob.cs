@@ -145,30 +145,12 @@ public class RavenJob
             // misc
             bs.ReadWrite(ref txLockTime);
 
-            // Extension point
-            AppendCoinbaseFinal(bs);
-
             // done
             coinbaseFinal = stream.ToArray();
             coinbaseFinalHex = coinbaseFinal.ToHexString();
         }
 
         Console.WriteLine("coinbaseFinalHex: " + coinbaseFinalHex);
-    }
-
-    protected virtual void AppendCoinbaseFinal(BitcoinStream bs)
-    {
-        if(!string.IsNullOrEmpty(txComment))
-        {
-            var data = Encoding.ASCII.GetBytes(txComment);
-            bs.ReadWriteAsVarString(ref data);
-        }
-        /* 
-                if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
-                {
-                    var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
-                    bs.ReadWriteAsVarString(ref data);
-                } */
     }
 
     protected virtual byte[] SerializeOutputTransaction(Transaction tx)

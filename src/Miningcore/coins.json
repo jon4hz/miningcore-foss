@@ -2142,9 +2142,9 @@
             ]
         },
         "shareMultiplier": 1,
-        "explorerBlockLink": "",
-        "explorerTxLink": "",
-        "explorerAccountLink": ""
+        "explorerBlockLink": "https://testnet.ravencoin.network/block/$hash$",
+        "explorerTxLink": "https://testnet.ravencoin.network/tx/{0}",
+        "explorerAccountLink": "https://testnet.ravencoin.network/address/{0}"
     },
     "novo": {
         "name": "Novo",
