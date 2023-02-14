@@ -16,15 +16,15 @@ using NLog;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
 
-namespace Miningcore.Blockchain.Raven;
+namespace Miningcore.Blockchain.Ravencoin;
 
-public class RavenJobParams
+public class RavencoinJobParams
 {
     public ulong Height { get; set; }
     public bool CleanJobs { get; set; }
 }
 
-public class RavenJob
+public class RavencoinJob
 {
     protected IMasterClock clock;
     protected double shareMultiplier;
@@ -34,7 +34,7 @@ public class RavenJob
 
     protected Network network;
     protected IDestination poolAddressDestination;
-    protected RavenTemplate coin;
+    protected RavencoinTemplate coin;
     protected readonly ConcurrentDictionary<string, bool> submissions = new(StringComparer.OrdinalIgnoreCase);
     protected uint256 blockTargetValue;
     protected byte[] coinbaseFinal;
@@ -47,7 +47,7 @@ public class RavenJob
     ///////////////////////////////////////////
     // GetJobParams related properties
 
-    protected RavenJobParams jobParams;
+    protected RavencoinJobParams jobParams;
     protected Money rewardToPool;
     protected Transaction txOut;
 
@@ -86,7 +86,7 @@ public class RavenJob
 
         var sigScriptLength = (uint) (
             sigScriptInitial.Length +
-            RavenConstants.ExtranoncePlaceHolderLength +
+            RavencoinConstants.ExtranoncePlaceHolderLength +
             scriptSigFinalBytes.Length);
 
         // output transaction
@@ -247,7 +247,7 @@ public class RavenJob
     protected virtual (Share Share, string BlockHex) ProcessShareInternal(ILogger logger,
         StratumConnection worker, ulong nonce, string inputHeaderHash, string mixHash)
     {
-        var context = worker.ContextAs<RavenWorkerContext>();
+        var context = worker.ContextAs<RavencoinWorkerContext>();
         var extraNonce1 = context.ExtraNonce1;
 
         // build coinbase
@@ -278,7 +278,7 @@ public class RavenJob
         var resultValue = new uint256(resultBytes);
         var resultValueBig = resultBytes.AsSpan().ToBigInteger();
         // calc share-diff
-        var shareDiff = (double) new BigRational(RavenConstants.Diff1, resultValueBig) * shareMultiplier;
+        var shareDiff = (double) new BigRational(RavencoinConstants.Diff1, resultValueBig) * shareMultiplier;
         var stratumDifficulty = context.Difficulty;
         var ratio = shareDiff / stratumDifficulty;
 
@@ -398,7 +398,7 @@ public class RavenJob
         Contract.RequiresNonNull(kawpowHasher);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(jobId));
 
-        coin = pc.Template.As<RavenTemplate>();
+        coin = pc.Template.As<RavencoinTemplate>();
         txVersion = coin.CoinbaseTxVersion;
         this.network = network;
         this.clock = clock;
@@ -430,14 +430,14 @@ public class RavenJob
         BuildMerkleBranches();
         BuildCoinbase();
 
-        jobParams = new RavenJobParams
+        jobParams = new RavencoinJobParams
         {
             Height = BlockTemplate.Height,
             CleanJobs = false
         };
     }
 
-    public virtual void PrepareWorkerJob(ILogger logger, RavenWorkerJob workerJob, out string headerHash)
+    public virtual void PrepareWorkerJob(ILogger logger, RavencoinWorkerJob workerJob, out string headerHash)
     {
         workerJob.Job = this;
         workerJob.Height = BlockTemplate.Height;
@@ -446,7 +446,7 @@ public class RavenJob
         headerHash = CreateHeaderHash(logger, workerJob);
     }
 
-    protected virtual string CreateHeaderHash(ILogger logger, RavenWorkerJob workerJob)
+    protected virtual string CreateHeaderHash(ILogger logger, RavencoinWorkerJob workerJob)
     {
         var headerHasher = coin.HeaderHasherValue;
         var coinbaseHasher = coin.CoinbaseHasherValue;
@@ -475,7 +475,7 @@ public class RavenJob
         Contract.RequiresNonNull(worker);
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nonce));
 
-        var context = worker.ContextAs<RavenWorkerContext>();
+        var context = worker.ContextAs<RavencoinWorkerContext>();
 
         // mixHash
         if(mixHash.Length != 64)

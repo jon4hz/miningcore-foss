@@ -1,4 +1,4 @@
-using Miningcore.Blockchain.Raven;
+using Miningcore.Blockchain.Ravencoin;
 using NLog;
 
 namespace Miningcore.Crypto.Hashing.Kawpow;
@@ -24,7 +24,7 @@ public class EthashLight : IDisposable
 
     public async Task<Cache> GetCacheAsync(ILogger logger, int block)
     {
-        var epoch = block / RavenConstants.EpochLength;
+        var epoch = block / RavencoinConstants.EpochLength;
         Cache result;
 
         lock(cacheLock)

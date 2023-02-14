@@ -21,7 +21,7 @@ using Contract = Miningcore.Contracts.Contract;
 
 namespace Miningcore.Blockchain.Bitcoin;
 
-[CoinFamily(CoinFamily.Bitcoin, CoinFamily.Raven)]
+[CoinFamily(CoinFamily.Bitcoin, CoinFamily.Ravencoin)]
 public class BitcoinPayoutHandler : PayoutHandlerBase,
     IPayoutHandler
 {

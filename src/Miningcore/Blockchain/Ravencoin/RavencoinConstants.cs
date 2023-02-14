@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Numerics;
 
-namespace Miningcore.Blockchain.Raven;
+namespace Miningcore.Blockchain.Ravencoin;
 
-public class RavenConstants
+public class RavencoinConstants
 {
     public const int EpochLength = 7500;
     public static readonly Org.BouncyCastle.Math.BigInteger Diff1B = new Org.BouncyCastle.Math.BigInteger("00ff000000000000000000000000000000000000000000000000000000", 16);

@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Miningcore.Blockchain.Raven;
+using Miningcore.Blockchain.Ravencoin;
 using Miningcore.Contracts;
 using Miningcore.Extensions;
 using Miningcore.Messaging;

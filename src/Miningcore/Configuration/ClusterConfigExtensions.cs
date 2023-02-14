@@ -86,9 +86,9 @@ public partial class BitcoinTemplate
     #endregion
 }
 
-public partial class RavenTemplate
+public partial class RavencoinTemplate
 {
-    public RavenTemplate() : base()
+    public RavencoinTemplate() : base()
     {
         KawpowHasher = new EthashLight();
     }

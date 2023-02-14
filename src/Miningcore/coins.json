@@ -2117,11 +2117,10 @@
         "explorerTxLink": "https://explorer.radiantblockchain.org/tx/{0}",
         "explorerAccountLink": "https://explorer.radiantblockchain.org/address/{0}"
     },
-    "raven": {
-        "name": "Raven",
-        "canonicalName": "Raven",
+    "ravencoin": {
+        "name": "Ravencoin",
         "symbol": "RVN",
-        "family": "raven",
+        "family": "ravencoin",
         "website": "https://www.bitcoin.org/",
         "market": "https://coinmarketcap.com/currencies/bitcoin/",
         "twitter": "https://twitter.com/bitcoin",
@@ -2133,18 +2132,10 @@
         "headerHasher": {
             "hash": "sha256d"
         },
-        "blockHasher": {
-            "hash": "reverse",
-            "args": [
-                {
-                    "hash": "sha256d"
-                }
-            ]
-        },
         "shareMultiplier": 1,
-        "explorerBlockLink": "https://testnet.ravencoin.network/block/$hash$",
-        "explorerTxLink": "https://testnet.ravencoin.network/tx/{0}",
-        "explorerAccountLink": "https://testnet.ravencoin.network/address/{0}"
+        "explorerBlockLink": "https://ravencoin.network/rvn/block/$hash$",
+        "explorerTxLink": "https://ravencoin.network/rvn/transaction/{0}",
+        "explorerAccountLink": "https://ravencoin.network/rvn/address/{0}"
     },
     "novo": {
         "name": "Novo",

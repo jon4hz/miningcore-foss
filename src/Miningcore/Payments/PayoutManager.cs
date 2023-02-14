@@ -142,9 +142,6 @@ public class PayoutManager : BackgroundService
                     return CoinFamily.Bitcoin;
 
                 break;
-
-                /* case CoinFamily.Raven:
-                    return CoinFamily.Bitcoin; */
         }
 
         return family;

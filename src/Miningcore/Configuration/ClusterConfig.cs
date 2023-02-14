@@ -37,8 +37,8 @@ public enum CoinFamily
     [EnumMember(Value = "ergo")]
     Ergo,
 
-    [EnumMember(Value = "raven")]
-    Raven,
+    [EnumMember(Value = "ravencoin")]
+    Ravencoin,
 }
 
 public abstract partial class CoinTemplate
@@ -142,7 +142,7 @@ public abstract partial class CoinTemplate
         {CoinFamily.Cryptonote, typeof(CryptonoteCoinTemplate)},
         {CoinFamily.Ethereum, typeof(EthereumCoinTemplate)},
         {CoinFamily.Ergo, typeof(ErgoCoinTemplate)},
-        {CoinFamily.Raven, typeof(RavenTemplate)},
+        {CoinFamily.Ravencoin, typeof(RavencoinTemplate)},
     };
 }
 
@@ -231,7 +231,7 @@ public partial class BitcoinTemplate : CoinTemplate
     public string BlockSerializer { get; set; }
 }
 
-public partial class RavenTemplate : BitcoinTemplate
+public partial class RavencoinTemplate : BitcoinTemplate
 {
     public EthashLight KawpowHasher { get; set; }
 }

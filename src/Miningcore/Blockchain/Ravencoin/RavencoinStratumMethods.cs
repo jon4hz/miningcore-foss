@@ -1,6 +1,6 @@
-namespace Miningcore.Blockchain.Raven;
+namespace Miningcore.Blockchain.Ravencoin;
 
-public class RavenStratumMethods
+public class RavencoinStratumMethods
 {
     /// <summary>
     /// Used to subscribe to work from a server, required before all other communication.

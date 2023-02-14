@@ -14,11 +14,11 @@ using Miningcore.Time;
 using Newtonsoft.Json;
 using NLog;
 
-namespace Miningcore.Blockchain.Raven;
+namespace Miningcore.Blockchain.Ravencoin;
 
-public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
+public class RavencoinJobManager : BitcoinJobManagerBase<RavencoinJob>
 {
-    public RavenJobManager(
+    public RavencoinJobManager(
         IComponentContext ctx,
         IMasterClock clock,
         IMessageBus messageBus,
@@ -27,7 +27,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
     {
     }
 
-    private RavenTemplate coin;
+    private RavencoinTemplate coin;
 
     protected async Task<RpcResponse<BlockTemplate>> GetBlockTemplateAsync(CancellationToken ct)
     {
@@ -44,7 +44,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         return new RpcResponse<BlockTemplate>(result!.ResultAs<BlockTemplate>());
     }
 
-    private RavenJob CreateJob()
+    private RavencoinJob CreateJob()
     {
         return new();
     }
@@ -161,7 +161,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
 
     public override void Configure(PoolConfig pc, ClusterConfig cc)
     {
-        coin = pc.Template.As<RavenTemplate>();
+        coin = pc.Template.As<RavencoinTemplate>();
         extraPoolConfig = pc.Extra.SafeExtensionDataAs<BitcoinPoolConfigExtra>();
         extraPoolPaymentProcessingConfig = pc.PaymentProcessing?.Extra?.SafeExtensionDataAs<BitcoinPoolPaymentProcessingConfigExtra>();
 
@@ -178,7 +178,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         base.Configure(pc, cc);
     }
 
-    public virtual void PrepareWorkerJob(RavenWorkerJob workerJob, out string headerHash)
+    public virtual void PrepareWorkerJob(RavencoinWorkerJob workerJob, out string headerHash)
     {
         headerHash = null;
 
@@ -203,7 +203,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         if(submission is not object[] submitParams)
             throw new StratumException(StratumError.Other, "invalid params");
 
-        var context = worker.ContextAs<RavenWorkerContext>();
+        var context = worker.ContextAs<RavencoinWorkerContext>();
 
         // extract params
         var workerValue = (submitParams[0] as string)?.Trim();
@@ -215,7 +215,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         if(string.IsNullOrEmpty(workerValue))
             throw new StratumException(StratumError.Other, "missing or invalid workername");
 
-        RavenWorkerJob job;
+        RavencoinWorkerJob job;
 
         lock(context)
         {
@@ -307,7 +307,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
     {
         Contract.RequiresNonNull(worker);
 
-        var context = worker.ContextAs<RavenWorkerContext>();
+        var context = worker.ContextAs<RavencoinWorkerContext>();
 
         // assign unique ExtraNonce1 to worker (miner)
         context.ExtraNonce1 = extraNonceProvider.Next();
