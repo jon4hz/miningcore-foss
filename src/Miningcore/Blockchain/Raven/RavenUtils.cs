@@ -10,7 +10,7 @@ public static class RavenUtils
     {
         string result;
         var diff = BigInteger.ValueOf((long) (difficulty * 255d));
-        var quotient = RavenConstants.Diff1.Divide(diff).Multiply(BigInteger.ValueOf(255));
+        var quotient = RavenConstants.Diff1B.Divide(diff).Multiply(BigInteger.ValueOf(255));
         var bytes = quotient.ToByteArray().AsSpan();
         Span<byte> padded = stackalloc byte[RavenConstants.TargetPaddingLength];
 

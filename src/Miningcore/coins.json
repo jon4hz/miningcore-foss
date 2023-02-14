@@ -2141,6 +2141,7 @@
                 }
             ]
         },
+        "shareMultiplier": 1,
         "explorerBlockLink": "",
         "explorerTxLink": "",
         "explorerAccountLink": ""

@@ -11,6 +11,7 @@ public class RavenWorkerJob
     }
 
     public string Id { get; }
+    public RavenJob Job { get; set; }
     public uint Height { get; set; }
     public string ExtraNonce1 { get; set; }
     public string Bits { get; set; }

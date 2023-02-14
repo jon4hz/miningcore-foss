@@ -218,26 +218,8 @@ public class RavenPool : PoolBase
 
             var requestParams = request.ParamsAs<string[]>();
 
-            if(requestParams is not object[] submitParams)
-                throw new StratumException(StratumError.Other, "invalid params");
-
-            RavenWorkerJob job;
-
-            lock(context)
-            {
-                var jobId = submitParams[1] as string;
-
-                if((job = context.FindJob(jobId)) == null)
-                    throw new StratumException(StratumError.MinusOne, "invalid jobid");
-            }
-
-            if(job == null)
-                throw new StratumException(StratumError.JobNotFound, "job not found");
-
-            // dupe check
-            // TODO: improve dupe check
-            if(!job.Submissions.TryAdd(submitParams[2] as string, true))
-                throw new StratumException(StratumError.MinusOne, "duplicate share");
+            /* if(requestParams is not object[] submitParams)
+                throw new StratumException(StratumError.Other, "invalid params"); */
 
             // submit
             var share = await manager.SubmitShareAsync(connection, requestParams, ct);
@@ -322,7 +304,7 @@ public class RavenPool : PoolBase
     protected override async Task SetupJobManager(CancellationToken ct)
     {
         manager = ctx.Resolve<RavenJobManager>(
-            new TypedParameter(typeof(IExtraNonceProvider), new BitcoinExtraNonceProvider(poolConfig.Id, clusterConfig.InstanceId)));
+            new TypedParameter(typeof(IExtraNonceProvider), new RavenExtraNonceProvider(poolConfig.Id, clusterConfig.InstanceId)));
 
         manager.Configure(poolConfig, clusterConfig);
 

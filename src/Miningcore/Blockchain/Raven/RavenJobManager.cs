@@ -216,7 +216,7 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         {
             lock(job)
             {
-                job.PrepareWorkerJob(workerJob, out headerHash);
+                job.PrepareWorkerJob(logger, workerJob, out headerHash);
             }
         }
     }
@@ -235,14 +235,30 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
         // extract params
         var workerValue = (submitParams[0] as string)?.Trim();
         var jobId = submitParams[1] as string;
-        var extraNonce2 = submitParams[2] as string;
-        var nTime = submitParams[3] as string;
-        var nonce = submitParams[4] as string;
+        var nonce = (submitParams[2] as string).Substring(2);
+        var headerHash = (submitParams[3] as string).Substring(2);
+        var mixHash = (submitParams[4] as string).Substring(2);
 
         if(string.IsNullOrEmpty(workerValue))
             throw new StratumException(StratumError.Other, "missing or invalid workername");
 
-        RavenJob job;
+        RavenWorkerJob job;
+
+        lock(context)
+        {
+            if((job = context.FindJob(jobId)) == null)
+                throw new StratumException(StratumError.MinusOne, "invalid jobid");
+        }
+
+        if(job == null)
+            throw new StratumException(StratumError.JobNotFound, "job not found");
+
+        // dupe check
+        // TODO: improve dupe check
+        if(!job.Submissions.TryAdd(submitParams[2] as string, true))
+            throw new StratumException(StratumError.MinusOne, "duplicate share");
+
+        //RavenJob job;
 
         /* lock(jobLock)
         {
@@ -270,8 +286,9 @@ public class RavenJobManager : BitcoinJobManagerBase<RavenJob>
             throw new StratumException(StratumError.MinusOne, "duplicate share");
  */
 
+        var hasher = await coin.KawpowHasher.GetCacheAsync(logger, (int) job.Job.BlockTemplate.Height);
         // validate & process
-        var (share, blockHex) = job.ProcessShare(worker, extraNonce2, nTime, nonce, null);
+        var (share, blockHex) = job.Job.ProcessShare(logger, hasher, worker, nonce, headerHash, mixHash);
 
         // enrich share with common data
         share.PoolId = poolConfig.Id;

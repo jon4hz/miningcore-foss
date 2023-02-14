@@ -15,6 +15,8 @@ using NBitcoin;
 using NBitcoin.DataEncoders;
 using Newtonsoft.Json.Linq;
 using NLog;
+using NLog.Fluent;
+using Npgsql.Util;
 using Org.BouncyCastle.Math;
 using Contract = Miningcore.Contracts.Contract;
 using Transaction = NBitcoin.Transaction;
@@ -75,6 +77,7 @@ public class RavenJob
     {
         var transactionHashes = BlockTemplate.Transactions
             .Select(tx => (tx.TxId ?? tx.Hash)
+            //.Select(tx => (tx.TxId)
                 .HexToByteArray()
                 .ReverseInPlace())
             .ToArray();
@@ -94,8 +97,8 @@ public class RavenJob
 
         var sigScriptLength = (uint) (
             sigScriptInitial.Length +
-            extraNoncePlaceHolderLength +
-            scriptSigFinalBytes.Length);
+            extraNoncePlaceHolderLength /* +
+            scriptSigFinalBytes.Length */);
 
         // output transaction
         txOut = CreateOutputTransaction();
@@ -107,13 +110,6 @@ public class RavenJob
 
             // version
             bs.ReadWrite(ref txVersion);
-
-            // timestamp for POS coins
-            if(isPoS)
-            {
-                var timestamp = BlockTemplate.CurTime;
-                bs.ReadWrite(ref timestamp);
-            }
 
             // serialize (simulated) input transaction
             bs.ReadWriteAsVarInt(ref txInputCount);
@@ -129,13 +125,15 @@ public class RavenJob
             coinbaseInitialHex = coinbaseInitial.ToHexString();
         }
 
+        Console.WriteLine("coinbaseInitialHex: " + coinbaseInitialHex);
+
         // build coinbase final
         using(var stream = new MemoryStream())
         {
             var bs = new BitcoinStream(stream, true);
 
             // signature script final part
-            bs.ReadWrite(ref scriptSigFinalBytes);
+            //bs.ReadWrite(ref scriptSigFinalBytes);
 
             // tx in sequence
             bs.ReadWrite(ref txInSequence);
@@ -148,15 +146,17 @@ public class RavenJob
             bs.ReadWrite(ref txLockTime);
 
             // Extension point
-            AppendCoinbaseFinal(bs);
+            //AppendCoinbaseFinal(bs);
 
             // done
             coinbaseFinal = stream.ToArray();
             coinbaseFinalHex = coinbaseFinal.ToHexString();
         }
+
+        Console.WriteLine("coinbaseFinalHex: " + coinbaseFinalHex);
     }
 
-    protected virtual void AppendCoinbaseFinal(BitcoinStream bs)
+    /* protected virtual void AppendCoinbaseFinal(BitcoinStream bs)
     {
         if(!string.IsNullOrEmpty(txComment))
         {
@@ -164,12 +164,12 @@ public class RavenJob
             bs.ReadWriteAsVarString(ref data);
         }
 
-        /* if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
+        if(coin.HasMasterNodes && !string.IsNullOrEmpty(masterNodeParameters.CoinbasePayload))
         {
             var data = masterNodeParameters.CoinbasePayload.HexToByteArray();
             bs.ReadWriteAsVarString(ref data);
-        } */
-    }
+        }
+    } */
 
     protected virtual byte[] SerializeOutputTransaction(Transaction tx)
     {
@@ -178,6 +178,8 @@ public class RavenJob
         var outputCount = (uint) tx.Outputs.Count;
         if(withDefaultWitnessCommitment)
             outputCount++;
+
+        Console.WriteLine("outputCount: " + outputCount);
 
         using(var stream = new MemoryStream())
         {
@@ -190,11 +192,12 @@ public class RavenJob
             byte[] raw;
             uint rawLength;
 
-            // serialize witness (segwit)
-            if(withDefaultWitnessCommitment)
+            // serialize outputs
+            foreach(var output in tx.Outputs)
             {
-                amount = 0;
-                raw = BlockTemplate.DefaultWitnessCommitment.HexToByteArray();
+                amount = output.Value.Satoshi;
+                var outScript = output.ScriptPubKey;
+                raw = outScript.ToBytes(true);
                 rawLength = (uint) raw.Length;
 
                 bs.ReadWrite(ref amount);
@@ -202,12 +205,11 @@ public class RavenJob
                 bs.ReadWrite(ref raw);
             }
 
-            // serialize outputs
-            foreach(var output in tx.Outputs)
+            // serialize witness (segwit)
+            if(withDefaultWitnessCommitment)
             {
-                amount = output.Value.Satoshi;
-                var outScript = output.ScriptPubKey;
-                raw = outScript.ToBytes(true);
+                amount = 0;
+                raw = BlockTemplate.DefaultWitnessCommitment.HexToByteArray();
                 rawLength = (uint) raw.Length;
 
                 bs.ReadWrite(ref amount);
@@ -278,19 +280,17 @@ public class RavenJob
         return reward;
     } */
 
-    protected bool RegisterSubmit(string extraNonce1, string extraNonce2, string nTime, string nonce)
+    protected bool RegisterSubmit(string extraNonce1, string nonce)
     {
         var key = new StringBuilder()
             .Append(extraNonce1)
-            .Append(extraNonce2) // lowercase as we don't want to accept case-sensitive values as valid.
-            .Append(nTime)
             .Append(nonce) // lowercase as we don't want to accept case-sensitive values as valid.
             .ToString();
 
         return submissions.TryAdd(key, true);
     }
 
-    protected byte[] SerializeHeader(Span<byte> coinbaseHash, uint nTime, uint nonce)
+    protected byte[] SerializeHeader(Span<byte> coinbaseHash)
     {
         // build merkle-root
         var merkleRoot = mt.WithFirst(coinbaseHash.ToArray());
@@ -306,37 +306,83 @@ public class RavenJob
             Bits = new Target(Encoders.Hex.DecodeData(BlockTemplate.Bits)),
             HashPrevBlock = uint256.Parse(BlockTemplate.PreviousBlockhash),
             HashMerkleRoot = new uint256(merkleRoot),
-            BlockTime = DateTimeOffset.FromUnixTimeSeconds(nTime),
-            Nonce = nonce
+            BlockTime = DateTimeOffset.FromUnixTimeSeconds(BlockTemplate.CurTime),
+            Nonce = BlockTemplate.Height
         };
 
         return blockHeader.ToBytes();
+
+        /*  var height = BlockTemplate.Height;
+         var bits = Encoders.Hex.DecodeData(BlockTemplate.Bits);
+         var nTime = BlockTemplate.CurTime;
+         var hashMerkleRoot = new uint256(merkleRoot);
+         var hashPrevBlock = uint256.Parse(BlockTemplate.PreviousBlockhash);
+
+         using(var stream = new MemoryStream())
+         {
+             var bs = new BitcoinStream(stream, true);
+
+             bs.ReadWrite(ref version);
+             bs.ReadWrite(ref hashPrevBlock);
+             bs.ReadWrite(ref hashMerkleRoot);
+             bs.ReadWrite(ref nTime);
+             bs.ReadWrite(ref bits);
+             bs.ReadWrite(ref height);
+
+             return stream.ToArray();
+         } */
     }
 
-    protected virtual (Share Share, string BlockHex) ProcessShareInternal(
-        StratumConnection worker, string extraNonce2, uint nTime, uint nonce, uint? versionBits)
+    protected virtual (Share Share, string BlockHex) ProcessShareInternal(ILogger logger, Cache kawPowHasher,
+        StratumConnection worker, ulong nonce, string inputHeaderHash, string mixHash)
     {
         var context = worker.ContextAs<RavenWorkerContext>();
         var extraNonce1 = context.ExtraNonce1;
 
         // build coinbase
-        var coinbase = SerializeCoinbase(extraNonce1, extraNonce2);
+        var coinbase = SerializeCoinbase(extraNonce1);
         Span<byte> coinbaseHash = stackalloc byte[32];
         coinbaseHasher.Digest(coinbase, coinbaseHash);
 
-        // hash block-header
-        var headerBytes = SerializeHeader(coinbaseHash, nTime, nonce);
-        Span<byte> headerHash = stackalloc byte[32];
-        headerHasher.Digest(headerBytes, headerHash, (ulong) nTime, BlockTemplate, coin, networkParams);
-        var headerValue = new uint256(headerHash);
 
+        //logger.Info(() => $"Coinbase from share: {coinbase.ToHexString()}");
+        /* var coinbaseHashHex = coinbaseHash.ToHexString();
+        logger.Info(() => $"Coinbase hash from share: {coinbaseHashHex}");
+        var merkleRoot = mt.WithFirst(coinbaseHash.ToArray());
+        logger.Info(() => $"Merkle root from share: {merkleRoot.ToHexString()}"); */
+
+        // hash block-header
+        var headerBytes = SerializeHeader(coinbaseHash);
+        Span<byte> headerHash = stackalloc byte[32];
+        headerHasher.Digest(headerBytes, headerHash);
+        headerHash.Reverse();
+
+        var headerValue = new uint256(headerHash);
+        var headerHashHex = headerHash.ToHexString();
+
+        if(headerHashHex != inputHeaderHash)
+        {
+            logger.Info(() => $"Input: {inputHeaderHash}, Actual: {headerHashHex}");
+            throw new StratumException(StratumError.MinusOne, "bad header-hash");
+        }
+
+        if(!kawPowHasher.Compute(logger, (int) BlockTemplate.Height, headerHash.ToArray(), nonce, out var mixHashOut, out var resultBytes))
+            throw new StratumException(StratumError.MinusOne, "bad hash");
+
+        resultBytes.ReverseInPlace();
+        mixHashOut.ReverseInPlace();
+
+        var resultValue = new uint256(resultBytes);
+        var resultValueBig = resultBytes.AsSpan().ToBigInteger();
         // calc share-diff
-        var shareDiff = (double) new BigRational(BitcoinConstants.Diff1, headerHash.ToBigInteger()) * shareMultiplier;
+        var shareDiff = (double) new BigRational(RavenConstants.Diff1, resultValueBig) * shareMultiplier;
         var stratumDifficulty = context.Difficulty;
         var ratio = shareDiff / stratumDifficulty;
 
+        logger.Info(() => $"Found share with ration {ratio} and diff {shareDiff}");
+
         // check if the share meets the much harder block difficulty (block candidate)
-        var isBlockCandidate = headerValue <= blockTargetValue;
+        var isBlockCandidate = resultValue <= blockTargetValue;
 
         // test if share meets at least workers current difficulty
         if(!isBlockCandidate && ratio < 0.99)
@@ -357,6 +403,11 @@ public class RavenJob
                 throw new StratumException(StratumError.LowDifficultyShare, $"low difficulty share ({shareDiff})");
         }
 
+
+        //tmp
+        /* var stratumDifficulty = 0.01;
+        var isBlockCandidate = true; */
+
         var result = new Share
         {
             BlockHeight = BlockTemplate.Height,
@@ -367,12 +418,9 @@ public class RavenJob
         if(isBlockCandidate)
         {
             result.IsBlockCandidate = true;
+            result.BlockHash = resultBytes.ReverseInPlace().ToHexString();
 
-            Span<byte> blockHash = stackalloc byte[32];
-            blockHasher.Digest(headerBytes, blockHash, nTime);
-            result.BlockHash = blockHash.ToHexString();
-
-            var blockBytes = SerializeBlock(headerBytes, coinbase);
+            var blockBytes = SerializeBlock(headerBytes, coinbase, nonce, mixHashOut);
             var blockHex = blockBytes.ToHexString();
 
             return (result, blockHex);
@@ -381,23 +429,21 @@ public class RavenJob
         return (result, null);
     }
 
-    protected virtual byte[] SerializeCoinbase(string extraNonce1, string extraNonce2)
+    protected virtual byte[] SerializeCoinbase(string extraNonce1)
     {
         var extraNonce1Bytes = extraNonce1.HexToByteArray();
-        /* var extraNonce2Bytes = extraNonce2.HexToByteArray(); */
 
         using(var stream = new MemoryStream())
         {
             stream.Write(coinbaseInitial);
             stream.Write(extraNonce1Bytes);
-            /* stream.Write(extraNonce2Bytes); */
             stream.Write(coinbaseFinal);
 
             return stream.ToArray();
         }
     }
 
-    protected virtual byte[] SerializeBlock(byte[] header, byte[] coinbase)
+    protected virtual byte[] SerializeBlock(byte[] header, byte[] coinbase, ulong nonce, byte[] mixHash)
     {
         var rawTransactionBuffer = BuildRawTransactionBuffer();
         var transactionCount = (uint) BlockTemplate.Transactions.Length + 1; // +1 for prepended coinbase tx
@@ -407,14 +453,12 @@ public class RavenJob
             var bs = new BitcoinStream(stream, true);
 
             bs.ReadWrite(ref header);
+            bs.ReadWrite(ref nonce);
+            bs.ReadWrite(ref mixHash);
             bs.ReadWriteAsVarInt(ref transactionCount);
 
             bs.ReadWrite(ref coinbase);
             bs.ReadWrite(ref rawTransactionBuffer);
-
-            // POS coins require a zero byte appended to block which the daemon replaces with the signature
-            if(isPoS)
-                bs.ReadWrite((byte) 0);
 
             return stream.ToArray();
         }
@@ -581,14 +625,14 @@ public class RavenJob
         BlockTemplate = blockTemplate;
         JobId = jobId;
 
-        var coinbaseString = !string.IsNullOrEmpty(cc.PaymentProcessing?.CoinbaseString) ?
+        /* var coinbaseString = !string.IsNullOrEmpty(cc.PaymentProcessing?.CoinbaseString) ?
             cc.PaymentProcessing?.CoinbaseString.Trim() : "Miningcore";
 
-        scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes();
+        scriptSigFinalBytes = new Script(Op.GetPushOp(Encoding.UTF8.GetBytes(coinbaseString))).ToBytes(); */
 
         Difficulty = new Target(System.Numerics.BigInteger.Parse(BlockTemplate.Target, NumberStyles.HexNumber)).Difficulty;
 
-        extraNoncePlaceHolderLength = BitcoinConstants.ExtranoncePlaceHolderLength;
+        extraNoncePlaceHolderLength = RavenConstants.ExtranoncePlaceHolderLength;
         this.isPoS = isPoS;
         this.shareMultiplier = shareMultiplier;
 
@@ -655,27 +699,32 @@ public class RavenJob
          };
      } */
 
-    public virtual void PrepareWorkerJob(RavenWorkerJob workerJob, out string headerHash)
+    public virtual void PrepareWorkerJob(ILogger logger, RavenWorkerJob workerJob, out string headerHash)
     {
+        workerJob.Job = this;
         workerJob.Height = BlockTemplate.Height;
         workerJob.Bits = BlockTemplate.Bits;
-        headerHash = CreateHeaderHash(workerJob);
+        headerHash = CreateHeaderHash(logger, workerJob);
     }
 
-    protected virtual string CreateHeaderHash(RavenWorkerJob workerJob)
+    protected virtual string CreateHeaderHash(ILogger logger, RavenWorkerJob workerJob)
     {
+        Console.WriteLine("ExtraNonce1: " + workerJob.ExtraNonce1);
+
         var headerHasher = coin.HeaderHasherValue;
         var coinbaseHasher = coin.CoinbaseHasherValue;
+        var extraNonce1 = workerJob.ExtraNonce1;
 
-        var coinbase = SerializeCoinbase(workerJob.ExtraNonce1, "");
+        var coinbase = SerializeCoinbase(workerJob.ExtraNonce1);
         Span<byte> coinbaseHash = stackalloc byte[32];
         coinbaseHasher.Digest(coinbase, coinbaseHash);
 
-        var headerBytes = SerializeHeader(coinbaseHash, BlockTemplate.CurTime, BlockTemplate.Height);
+        var headerBytes = SerializeHeader(coinbaseHash);
         Span<byte> headerHash = stackalloc byte[32];
         headerHasher.Digest(headerBytes, headerHash);
+        headerHash.Reverse();
 
-        return headerHash.ToNewReverseArray().ToHexString();
+        return headerHash.ToHexString();
     }
 
     public object GetJobParams(bool isNew)
@@ -684,47 +733,37 @@ public class RavenJob
         return jobParams;
     }
 
-    public virtual (Share Share, string BlockHex) ProcessShare(StratumConnection worker,
-        string extraNonce2, string nTime, string nonce, string versionBits = null)
+    public virtual (Share Share, string BlockHex) ProcessShare(ILogger logger, Cache kawPowHasher, StratumConnection worker, string nonce, string headerHash, string mixHash)
     {
         Contract.RequiresNonNull(worker);
-        Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(extraNonce2));
-        Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nTime));
         Contract.Requires<ArgumentException>(!string.IsNullOrEmpty(nonce));
 
         var context = worker.ContextAs<RavenWorkerContext>();
 
-        // validate nTime
-        if(nTime.Length != 8)
-            throw new StratumException(StratumError.Other, "incorrect size of ntime");
-
-        var nTimeInt = uint.Parse(nTime, NumberStyles.HexNumber);
-        if(nTimeInt < BlockTemplate.CurTime || nTimeInt > ((DateTimeOffset) clock.Now).ToUnixTimeSeconds() + 7200)
-            throw new StratumException(StratumError.Other, "ntime out of range");
+        // mixHash
+        if(mixHash.Length != 64)
+            throw new StratumException(StratumError.Other, $"incorrect size of mixHash: {mixHash}");
 
         // validate nonce
-        if(nonce.Length != 8)
-            throw new StratumException(StratumError.Other, "incorrect size of nonce");
+        if(nonce.Length != 16)
+            throw new StratumException(StratumError.Other, $"incorrect size of nonce: {nonce}");
 
-        var nonceInt = uint.Parse(nonce, NumberStyles.HexNumber);
+        // check if nonce is within range
+        if(nonce.IndexOf(context.ExtraNonce1.Substring(0, 4)) != 0)
+            throw new StratumException(StratumError.Other, $"nonce out of range: {nonce}");
 
-        // validate version-bits (overt ASIC boost)
-        uint versionBitsInt = 0;
+        var nonceLong = ulong.Parse(nonce, NumberStyles.HexNumber);
 
-        /*  if(context.VersionRollingMask.HasValue && versionBits != null)
-         {
-             versionBitsInt = uint.Parse(versionBits, NumberStyles.HexNumber);
+        /* logger.Info(() => $"NonceHex:    {nonce}");
+        logger.Info(() => $"ExtraNonce1: {context.ExtraNonce1}");
+        logger.Info(() => $"Nonce:       {nonceLong}"); */
 
-             // enforce that only bits covered by current mask are changed by miner
-             if((versionBitsInt & ~context.VersionRollingMask.Value) != 0)
-                 throw new StratumException(StratumError.Other, "rolling-version mask violation");
-         } */
 
         // dupe check
-        if(!RegisterSubmit(context.ExtraNonce1, extraNonce2, nTime, nonce))
+        if(!RegisterSubmit(context.ExtraNonce1, nonce))
             throw new StratumException(StratumError.DuplicateShare, "duplicate share");
 
-        return ProcessShareInternal(worker, extraNonce2, nTimeInt, nonceInt, versionBitsInt);
+        return ProcessShareInternal(logger, kawPowHasher, worker, nonceLong, headerHash, mixHash);
     }
 
     #endregion // API-Surface
