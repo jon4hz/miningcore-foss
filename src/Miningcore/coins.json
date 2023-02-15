@@ -4455,6 +4455,23 @@
         "explorerTxLink": "https://florascan.io/tx/{0}",
         "explorerAccountLink": "https://florascan.io/address/{0}"
     },
+    "avescoin": {
+        "name": "Aves",
+        "canonicalName": "Aves",
+        "symbol": "AVES",
+        "family": "ethereum",
+        "website": "https://avescoin.io/",
+        "market": "",
+        "twitter": "https://twitter.com/FloraChain",
+        "telegram": "",
+        "discord": "https://discord.gg/NDhQBnWBVY",
+        "explorerBlockLinks": {
+            "block": "https://avescan.io/block/$height$",
+            "uncle": "https://avescan.io/uncle/$height$"
+        },
+        "explorerTxLink": "https://avescan.io/tx/{0}",
+        "explorerAccountLink": "https://avescan.io/address/{0}"
+    },
     "ubiq": {
         "name": "Ubiq",
         "canonicalName": "Ubiq",
