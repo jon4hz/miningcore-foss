@@ -76,7 +76,7 @@ public class FloraConstants
 }
 public class AvesConstants
 {
-    public const decimal BaseRewardInitial = 3.0m;
+    public const decimal BaseRewardInitial = 2.85m;
 }
 
 // UBIQ block reward distribution - 
