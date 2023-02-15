@@ -74,6 +74,10 @@ public class FloraConstants
 {
     public const decimal BaseRewardInitial = 5.0m;
 }
+public class AvesConstants
+{
+    public const decimal BaseRewardInitial = 3.0m;
+}
 
 // UBIQ block reward distribution - 
 // https://github.com/ubiq/UIPs/issues/16 - https://ubiqsmart.com/en/monetary-policy
@@ -105,6 +109,7 @@ public enum EthereumNetworkType
     Pink = 10100,
     Flora = 10500,
     Unknown = -1,
+    Aves = 33333,
 }
 
 public enum GethChainType
@@ -120,6 +125,7 @@ public enum GethChainType
     Pink = 10100,
     Unknown = -1,
     Flora = 10500,
+    Aves = 33333,
 }
 
 public static class EthCommands

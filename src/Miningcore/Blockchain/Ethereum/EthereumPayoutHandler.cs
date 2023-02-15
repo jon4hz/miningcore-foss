@@ -387,6 +387,9 @@ public class EthereumPayoutHandler : PayoutHandlerBase,
             case GethChainType.Flora:
                return FloraConstants.BaseRewardInitial;
 
+            case GethChainType.Aves:
+               return AvesConstants.BaseRewardInitial;
+
             case GethChainType.Callisto:
                 return CallistoConstants.BaseRewardInitial * (CallistoConstants.TreasuryPercent / 100);
             
@@ -556,6 +559,16 @@ public class EthereumPayoutHandler : PayoutHandlerBase,
         else if(extraPoolConfig?.ChainTypeOverride == "Flora")
         {
             var requestFlora = new SendTransactionRequestFlora
+            {
+                From = poolConfig.Address,
+                To = balance.Address,
+                Value = amount.ToString("x").TrimStart('0'),
+                Gas = extraConfig.Gas
+            };
+            response = await rpcClient.ExecuteAsync<string>(logger, EC.SendTx, ct, new[] { requestFlora });
+        } else if(extraPoolConfig?.ChainTypeOverride == "Aves")
+        {
+            var requestFlora = new SendTransactionRequestAves
             {
                 From = poolConfig.Address,
                 To = balance.Address,
