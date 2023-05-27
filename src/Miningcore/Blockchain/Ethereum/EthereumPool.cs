@@ -257,6 +257,8 @@ public class EthereumPool : PoolBase
 
     private async Task OnSubmitLoginAsync(StratumConnection connection, Timestamped<JsonRpcRequest> tsRequest)
     {
+
+        throw new StratumException(StratumError.MinusOne, "stratum v1 unsupported");
         var request = tsRequest.Value;
         var context = connection.ContextAs<EthereumWorkerContext>();
 
